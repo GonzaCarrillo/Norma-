@@ -17,6 +17,7 @@ public class IntentParser {
  for(int i=0;i<hundreds.length;i++)WORDS.put(hundreds[i],100*(i+1));WORDS.put("ciento",100);
  }
  public Integer price(String raw){
+ if(raw.matches(".*-\\s*\\d.*"))return null;
  String s=norm(raw.replaceAll("(?<=\\d)\\.(?=\\d{3})",""));
  var digit=Pattern.compile("(?<!\\d)(\\d{1,9})(?:\\s*(mil|lucas))?").matcher(s);
  if(digit.find()){long v=Long.parseLong(digit.group(1));if(digit.group(2)!=null)v*=1000;return checked(v);}
@@ -31,10 +32,10 @@ public class IntentParser {
  public Intent parse(String raw,String image,List<Catalog.Product> products){
  String s=norm(raw);
  if(s.contains("equivoque")||s.contains("volve atras")||s.equals("deshacer"))return new Intent("UNDO",null,null,null,null);
- String kind=s.matches(".*(vendi|vendida|saca|quita|retira).*")?"SOLD":s.matches(".*(cambia.*foto|foto.*cambia|foto.*pieza|foto.*numero).*")?"IMAGE":s.matches(".*(subi|baja|precio|cobr|vale|ponele|cambia). *")?"PRICE":"CREATE";
+ String kind=s.matches(".*(vendi|vendida|saca|quita|retira).*")?"SOLD":s.matches(".*(cambia.*foto|foto.*cambia|foto.*pieza|foto.*numero).*")?"IMAGE":s.matches(".*(subi|baja|precio|cobr|vale|ponele|cambia).*")?"PRICE":"CREATE";
  if(s.contains("subila")||s.contains("bajala")||s.contains("precio")||s.contains("ponele")||s.contains("cambiale"))kind="PRICE";
  Integer number=null;
- var m=Pattern.compile("(?:#|numero\\s+|pieza\\s+|la\\s+)(\\d+|[a-z]+)").matcher(s);
+ var m=Pattern.compile("(?:#|numero\\s+|pieza\\s+)(\\d+|[a-z]+)").matcher(s);
  if(m.find()){try{number=Integer.valueOf(m.group(1));}catch(NumberFormatException e){number=WORDS.get(m.group(1));}}
  if(!kind.equals("CREATE")){
   final Integer n=number;

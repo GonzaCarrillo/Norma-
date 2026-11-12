@@ -29,6 +29,9 @@ public class BotEngine {
  }
  String photo=image!=null?image:session.tempImage();
  if(s.isBlank()){
+ if(photo!=null && session.pending()!=null){
+ try{var old=json.readValue(session.pending(),IntentParser.Intent.class);return prepare(id,new IntentParser.Intent(old.kind(),old.number(),old.title(),old.price(),photo));}catch(java.io.IOException e){throw new IllegalStateException(e);}
+ }
  if(photo!=null){catalog.conversation(id,"AWAITING_DETAILS",null,photo);return reply(id,"Qué linda foto, Norma. Decime el nombre y el precio, o de qué pieza es la foto nueva.");}
  return reply(id,"Mandame una foto o contame qué pieza querés cambiar.");
  }
