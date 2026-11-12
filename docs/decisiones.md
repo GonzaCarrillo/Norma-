@@ -27,7 +27,8 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 ### D4 — Configuración externa nativa de Spring Boot
 - **Estado**: Aprobado e implementado en Issue #1.
 - **Contexto**: Necesidad de parametrizar puertos, rutas de almacenamiento y credenciales sin alterar el código ni exponer secretos.
-- **Decisión**: Empleo exclusivo del sistema de configuración externa de Spring Boot (CLI, archivos `.properties` externos vía `--spring.config.additional-location`, y variables de entorno `PORT`, `NORMA_DB`, `NORMA_UPLOADS`, `GROQ_API_KEY`). Ningún secreto en el repositorio ni carga mágica de dotenv. Ausencia de clave Groq permite el inicio normal del monolito.
+- **Decisión**: Empleo exclusivo del sistema de configuración externa de Spring Boot (CLI, variables de entorno y archivos `.properties` externos vía `--spring.config.additional-location`). Ningún secreto en el repositorio ni carga mágica de dotenv. Ausencia de clave Groq permite el inicio normal del monolito.
+- **Brecha de modelos y voz documentada**: Parámetros mencionados en la especificación técnica preliminar (`groq.stt.model`, `groq.llm.model`, `norma.tts.voice`, `norma.tts.rate`) no forman parte del contrato de configuración externa de la base en Issue #1; los modelos y voz se encuentran fijos en los componentes correspondientes y su diseño/parametrización configurable se revisará en la Issue #5. No se agregan propiedades inertes ni código sin consumidor en la base.
 - **Consecuencias**: Compatibilidad estándar con despliegues en contenedores y servidores locales; precedencia determinista y trazable.
 
 ### D5 — Sandbox público sin autenticación tradicional
@@ -39,13 +40,13 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 ### D6 — Persistencia compatible y sin migraciones en Issue #1
 - **Estado**: Aprobado para la base en Issue #1.
 - **Contexto**: SQLite con modo WAL y driver `org.xerial:sqlite-jdbc`.
-- **Decisión**: Conservar la conexión Hikari única (`maximum-pool-size=1`), `PRAGMA busy_timeout=5000` y la inicialización mediante `schema.sql`. La auditoría detallada de tablas y modo WAL se delega a la Issue #2.
-- **Consecuencias**: Cero riesgo de corrupción de datos durante el desarrollo base; no se eliminan bases de datos existentes para lograr arranques limpios.
+- **Decisión**: Se conserva la configuración y el esquema existentes sin introducir migraciones en #1; no se eliminan bases para lograr un arranque limpio y se verifica con almacenamiento temporal aislado. La integridad, concurrencia y recuperación se auditarán en #2; no se garantiza ausencia de corrupción.
+- **Consecuencias**: Se respeta la evolución secuencial de la arquitectura sin alteraciones anticipadas del esquema relacional.
 
 ### D7 — Documentación honesta y sin garantías no verificadas
 - **Estado**: Aprobado e implementado en Issue #1.
 - **Contexto**: Existen metas documentadas de cold start 0 ms, latencia universal o voz gratuita sin límites.
-- **Decisión**: No declarar cumplidos requisitos no verificados empíricamente en la fase actual. Separar claramente la base técnica verificada de las áreas pendientes (#2 a #8).
+- **Decisión**: No declarar cumplidos requisitos no verificados empíricamente en la fase actual. Separar claramente la base técnica verificada de las áreas pendientes (#2 a #8). En la verificación, distinguir explícitamente el árbol de trabajo local (6 tests, incluyendo suites/clases sin seguimiento) de una exportación limpia versionada (`git archive`, 4 tests versionados).
 - **Consecuencias**: Máxima transparencia técnica en las entregas y criterios de aceptación.
 
 ---
@@ -55,6 +56,7 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 - **Persistencia y Catálogo (Issue #2)**: Esquema relacional, inmutabilidad de DEFAULT, aislamiento transaccional y snapshots. *Estado: Pendiente de especificación y auditoría de Issue #2.*
 - **FSM y Conversación (Issue #3)**: Máquina de estados conversacional, consumo de borradores en confirmación y resolución de referencias. *Estado: Pendiente de Issue #3.*
 - **Medios y Formatos de Imagen (Issue #4)**: Procesamiento de WebP mediante Thumbnailator y proveedor ImageIO. *Estado: Pendiente de Issue #4.*
-- **Audio, STT y TTS (Issue #5)**: Integración con Groq Whisper y síntesis Edge TTS. *Estado: Pendiente de Issue #5.*
+- **Audio, STT y TTS (Issue #5)**: Integración con Groq Whisper, síntesis Edge TTS y parametrización de modelos/voces. *Estado: Pendiente de Issue #5.*
 - **SSE e Interfaz Web (Issue #6)**: Streaming de eventos SSE para catálogo y UI accesible. *Estado: Pendiente de Issue #6.*
-- **Docker y Despliegue (Issue #7 - #8)**: Empaquetado en contenedor y publicación pública. *Estado: Pendiente de auditoría en sus respectivas fases.*
+- **Simulador de Norma sin credenciales (Issue #7)**: Simulador conversacional y vidriera accesible sin credenciales. *Estado: Pendiente de Issue #7.*
+- **Docker, Verificación y Despliegue Reproducible (Issue #8)**: Empaquetado en contenedor, verificación reproducible y despliegue. *Estado: Pendiente de Issue #8.*
