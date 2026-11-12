@@ -1,0 +1,66 @@
+[
+  {
+    "order": 1,
+    "title": "Base Java 25 y decisiones de arquitectura",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/1",
+    "description": "Crear Maven, configuración, README y registro de reglas.",
+    "rules": "Java 25; Spring Boot 3.4+; monolito sin autenticación tradicional.",
+    "acceptance": "Compila en Java 25; configuración externa; decisiones y alcance documentados."
+  },
+  {
+    "order": 2,
+    "title": "Catálogo persistente y sesiones aisladas",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/2",
+    "description": "Implementar SQLite WAL, ocho piezas, clonado, restauración y transacciones.",
+    "rules": "No modificar la semilla; números estables; precios enteros positivos.",
+    "acceptance": "Sesiones independientes; reinicio conserva datos; catálogo vacío no se repuebla accidentalmente."
+  },
+  {
+    "order": 3,
+    "title": "Conversación confirmada y deshacer",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/3",
+    "description": "Implementar parser argentino, estados persistentes y las cuatro operaciones.",
+    "rules": "Ningún cambio sin confirmar; ambigüedad requiere aclaración; rollback de un paso.",
+    "acceptance": "Alta, precio, foto y venta verificadas; cancelar y corregir; deshacer atómico."
+  },
+  {
+    "order": 4,
+    "title": "Fotografías y medios de demostración",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/4",
+    "description": "Validar imágenes, recortar 4:3, comprimir WebP y preparar recursos locales.",
+    "rules": "Sin imágenes generadas por IA; máximo 80 KB por imagen procesada.",
+    "acceptance": "Rechaza archivos inválidos; ocho fotos locales; imágenes no deformadas."
+  },
+  {
+    "order": 5,
+    "title": "Voz argentina y transcripción con fallbacks",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/5",
+    "description": "Integrar Groq STT y fallback de intenciones; edge-tts con límites de tiempo.",
+    "rules": "Claves fuera de Git; sin bloquear indefinidamente; errores claros en español.",
+    "acceptance": "Audio admitido; TTS reproducible; sin claves se puede evaluar por texto y ejemplos."
+  },
+  {
+    "order": 6,
+    "title": "Vidriera accesible con SSE",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/6",
+    "description": "Crear catálogo artesanal responsive, lectura, zoom y letra grande.",
+    "rules": "22px mínimo; contraste >7:1; sin carrito ni enlaces comerciales.",
+    "acceptance": "Teclado y móvil; grilla uniforme; actualizaciones por SSE; estados vacío y error."
+  },
+  {
+    "order": 7,
+    "title": "Simulador de Norma sin credenciales",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/7",
+    "description": "Crear panel conversacional, micrófono, carga de foto y cuatro ejemplos.",
+    "rules": "Separado de la vidriera; sesiones aisladas; confirmación explícita.",
+    "acceptance": "Ejecutar cuatro operaciones, cancelar, deshacer y restaurar desde navegador."
+  },
+  {
+    "order": 8,
+    "title": "Verificación integral y despliegue reproducible",
+    "url": "https://github.com/GonzaCarrillo/Norma-/issues/8",
+    "description": "Agregar pruebas de API y reglas, CI, Docker con volumen y guía operativa.",
+    "rules": "No afirmar despliegue público ni SLA sin evidencia; persistencia fuera del contenedor.",
+    "acceptance": "Tests y empaquetado pasan; receta de arranque; límites y configuración documentados."
+  }
+]
