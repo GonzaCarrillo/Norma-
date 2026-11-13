@@ -1,0 +1,19 @@
+com.norma.taller.ApiAudioTest: tests=6 failures=0 errors=0 skipped=0
+com.norma.taller.BotApiTest: tests=6 failures=0 errors=0 skipped=0
+com.norma.taller.BotEngineTest: tests=30 failures=0 errors=0 skipped=0
+com.norma.taller.BotPersistenceTest: tests=1 failures=0 errors=0 skipped=0
+com.norma.taller.BotSessionCodecTest: tests=15 failures=0 errors=0 skipped=0
+com.norma.taller.CatalogMigrationTest: tests=3 failures=0 errors=0 skipped=0
+com.norma.taller.CatalogPersistenceTest: tests=3 failures=0 errors=0 skipped=0
+com.norma.taller.CatalogRepositoryTest: tests=7 failures=0 errors=0 skipped=0
+com.norma.taller.DemoMediaTest: tests=3 failures=0 errors=0 skipped=0
+com.norma.taller.FlowTest: tests=4 failures=0 errors=0 skipped=0
+com.norma.taller.IntentParserTest: tests=61 failures=0 errors=0 skipped=0
+com.norma.taller.MediaHttpTest: tests=23 failures=0 errors=0 skipped=0
+com.norma.taller.MediaServiceTest: tests=14 failures=0 errors=0 skipped=0
+com.norma.taller.PhotoProcessorTest: tests=19 failures=0 errors=0 skipped=0
+com.norma.taller.StorefrontContractTest: tests=6 failures=0 errors=0 skipped=0
+com.norma.taller.StorefrontSseTest: tests=1 failures=0 errors=0 skipped=0
+TOTAL: suites=16 tests=202 failures=0 errors=0 skipped=0
+basedir=/home/gonzalocar/orca/workspaces/Norma-/reconcile-5-voice/target/issue-5-qa.fz8OvZ/export
+java.io.tmpdir=/home/gonzalocar/orca/workspaces/Norma-/reconcile-5-voice/target/issue-5-qa.fz8OvZ/private-tmp
