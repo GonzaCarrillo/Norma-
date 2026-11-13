@@ -4,6 +4,8 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -88,12 +90,12 @@ class MediaHttpTest {
             attemptedQualities.add(q);
             try {
                 if (attemptedQualities.size() == 1) {
-                    // Intento 1 (q=0.8): exactamente 80000 bytes (debe rechazarse)
+                    // Intento 1 (q=0.8): exactamente 80000 bytes (debe rechazarse por no ser < 80000)
                     byte[] b = makePaddedWebp(dummyWebp, 80000);
                     Files.write(dest, b);
                 } else if (attemptedQualities.size() == 2) {
-                    // Intento 2 (q=0.7): exactamente 79999 bytes (debe aceptarse)
-                    byte[] b = makePaddedWebp(dummyWebp, 79999);
+                    // Intento 2 (q=0.7): exactamente 79998 bytes (máximo tamaño par canónico < 80000, debe aceptarse)
+                    byte[] b = makePaddedWebp(dummyWebp, 79998);
                     Files.write(dest, b);
                 }
             } catch (Exception e) {
@@ -111,7 +113,7 @@ class MediaHttpTest {
         assertEquals(0.70f, attemptedQualities.get(1), 0.001f);
 
         Path published = isolatedRoot.resolve(url.substring("/media/".length()));
-        assertEquals(79999, Files.size(published));
+        assertEquals(79998, Files.size(published));
     }
 
     @Test
@@ -294,6 +296,172 @@ class MediaHttpTest {
         assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
     }
 
+    @Test
+    void testF1_CandidateRiffSizeInconsistent_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-riff-inconsistent");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.BLACK);
+        byte[] corrupted = Arrays.copyOf(baseWebp, baseWebp.length);
+        // Corromper tamaño RIFF declarado en bytes 4..7
+        corrupted[4] = (byte) (corrupted[4] + 1);
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, corrupted);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.RED);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("Contenedor RIFF inconsistente"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
+    @Test
+    void testF1_CandidateTrailingByte_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-trailing-byte");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.BLACK);
+        // Agregar un byte extra al final del archivo
+        byte[] withTrailing = Arrays.copyOf(baseWebp, baseWebp.length + 1);
+        withTrailing[baseWebp.length] = (byte) 0xFF;
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, withTrailing);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.RED);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("RIFF") || ex.getMessage().contains("cursor final"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
+    @Test
+    void testF1_CandidatePartialChunkHeader_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-partial-chunk-header");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.BLACK);
+        // Construir un archivo cuyo RIFF declare 3 bytes adicionales, pero con cabecera de chunk incompleta
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int newSize = baseWebp.length + 3;
+        out.write(baseWebp, 0, 4);
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(newSize - 8).array());
+        out.write(baseWebp, 8, baseWebp.length - 8);
+        out.write(new byte[]{'B', 'A', 'D'}); // Solo 3 bytes de FourCC, faltan bytes para los 8 de cabecera
+        byte[] candidateBytes = out.toByteArray();
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, candidateBytes);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.RED);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("Cabecera de chunk RIFF incompleta"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
+    @Test
+    void testF1_CandidateMissingPaddingByte_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-missing-padding");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.BLACK);
+        // Crear chunk PAD con longitud impar (5 bytes) omitiendo intencionalmente el byte de alineación RIFF
+        byte[] oddPayload = new byte[]{1, 2, 3, 4, 5};
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int newSize = baseWebp.length + 8 + oddPayload.length; // Sin el byte extra de alineación requerido
+        out.write(baseWebp, 0, 4);
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(newSize - 8).array());
+        out.write(baseWebp, 8, baseWebp.length - 8);
+        out.write(new byte[]{'P', 'A', 'D', ' '});
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(oddPayload.length).array());
+        out.write(oddPayload);
+        byte[] candidateBytes = out.toByteArray();
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, candidateBytes);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.RED);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("longitud o padding incompleto"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
+    @Test
+    void testF1_CandidateWithIccpChunk_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-iccp-candidate");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.CYAN);
+        byte[] iccpCandidate = makeWebpWithMetadataChunk(baseWebp, "ICCP");
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, iccpCandidate);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.BLACK);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("ICCP"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
+    @Test
+    void testF1_CandidateWithVp8xProfileFlag_RejectedWith500_CleanedAndSemaphoreReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-vp8x-profile-flag");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] baseWebp = createTestImageBytes("webp", 800, 600, Color.CYAN);
+        // Bandera 0x20 = perfil ICCP en encabezado VP8X
+        byte[] profileFlagCandidate = makeWebpWithVp8xFlags(baseWebp, (byte) 0x20);
+
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, profileFlagCandidate);
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder);
+
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.BLACK);
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "photo.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("VP8X") || ex.getMessage().contains("perfil"));
+
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normalProcessor = new PhotoProcessor(isolatedRoot);
+        String normalUrl = normalProcessor.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(normalUrl);
+    }
+
     // ==========================================
     // F2: Aislamiento, UUIDs, sanitización de nombre y un solo slot de concurrencia
     // ==========================================
@@ -421,11 +589,14 @@ class MediaHttpTest {
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(baseWebp, 0, 4); // RIFF
-        out.write(java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(targetSize - 8).array());
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(targetSize - 8).array());
         out.write(baseWebp, 8, baseWebp.length - 8);
         out.write(new byte[]{'P', 'A', 'D', ' '});
-        out.write(java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(padPayload).array());
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(padPayload).array());
         out.write(new byte[padPayload]);
+        if (padPayload % 2 != 0) {
+            out.write(0);
+        }
         return out.toByteArray();
     }
 
@@ -435,12 +606,30 @@ class MediaHttpTest {
         int newSize = currentLen + 8 + payload.length;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(baseWebp, 0, 4); // RIFF
-        out.write(java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(newSize - 8).array());
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(newSize - 8).array());
         out.write(baseWebp, 8, baseWebp.length - 8);
         byte[] fourCCBytes = Arrays.copyOf(chunkFourCC.getBytes(StandardCharsets.US_ASCII), 4);
         out.write(fourCCBytes);
-        out.write(java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(payload.length).array());
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(payload.length).array());
         out.write(payload);
+        return out.toByteArray();
+    }
+
+    private byte[] makeWebpWithVp8xFlags(byte[] rawWebp, byte flags) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(new byte[]{'R', 'I', 'F', 'F'});
+        int targetSize = rawWebp.length + 18;
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(targetSize - 8).array());
+        out.write(new byte[]{'W', 'E', 'B', 'P'});
+        out.write(new byte[]{'V', 'P', '8', 'X'});
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(10).array());
+        out.write(flags);
+        out.write(new byte[]{0, 0, 0});
+        int wM1 = 800 - 1;
+        int hM1 = 600 - 1;
+        out.write(new byte[]{(byte) (wM1 & 0xFF), (byte) ((wM1 >> 8) & 0xFF), (byte) ((wM1 >> 16) & 0xFF)});
+        out.write(new byte[]{(byte) (hM1 & 0xFF), (byte) ((hM1 >> 8) & 0xFF), (byte) ((hM1 >> 16) & 0xFF)});
+        out.write(rawWebp, 12, rawWebp.length - 12);
         return out.toByteArray();
     }
 

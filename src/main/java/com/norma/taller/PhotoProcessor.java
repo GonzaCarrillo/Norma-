@@ -562,22 +562,29 @@ class PhotoProcessor {
             throw new IOException("Candidato no tiene encabezado RIFF/WEBP válido");
         }
         long riffLen = (b[4] & 0xFFL) | ((b[5] & 0xFFL) << 8) | ((b[6] & 0xFFL) << 16) | ((b[7] & 0xFFL) << 24);
-        if (riffLen + 8 != b.length && riffLen + 8 + 1 != b.length) {
+        if (riffLen + 8 != b.length) {
             throw new IOException("Contenedor RIFF inconsistente: longitud declarada " + riffLen + ", bytes reales " + b.length);
         }
 
-        // Inspeccionar chunks RIFF: prohibir EXIF, XMP, animaciones y flags prohibidos en VP8X
+        // Inspeccionar chunks RIFF: prohibir EXIF, XMP, ICCP, animaciones y flags prohibidos en VP8X
         int offset = 12;
-        while (offset + 8 <= b.length) {
+        while (offset < b.length) {
+            if (offset + 8 > b.length) {
+                throw new IOException("Cabecera de chunk RIFF incompleta al offset " + offset);
+            }
             String fourCC = new String(b, offset, 4, StandardCharsets.US_ASCII);
             long chunkLen = (b[offset + 4] & 0xFFL) | ((b[offset + 5] & 0xFFL) << 8) |
                             ((b[offset + 6] & 0xFFL) << 16) | ((b[offset + 7] & 0xFFL) << 24);
-            if (chunkLen < 0 || offset + 8 + chunkLen > b.length) {
-                throw new IOException("Chunk " + fourCC + " con longitud inválida o truncada: " + chunkLen);
+            long padByte = chunkLen % 2;
+            if (chunkLen < 0 || offset + 8 + chunkLen + padByte > b.length) {
+                throw new IOException("Chunk " + fourCC + " con longitud o padding incompleto/truncado (offset=" + offset + ", chunkLen=" + chunkLen + ")");
             }
 
             if (fourCC.equalsIgnoreCase("EXIF") || fourCC.equalsIgnoreCase("XMP ") || fourCC.trim().equalsIgnoreCase("XMP")) {
                 throw new IOException("Candidato WebP contiene metadatos prohibidos: " + fourCC);
+            }
+            if (fourCC.equalsIgnoreCase("ICCP")) {
+                throw new IOException("Candidato WebP contiene perfil de color ICCP prohibido: " + fourCC);
             }
             if (fourCC.equals("ANIM") || fourCC.equals("ANMF")) {
                 throw new IOException("Candidato WebP contiene chunks de animación prohibidos: " + fourCC);
@@ -585,14 +592,21 @@ class PhotoProcessor {
             if (fourCC.equals("VP8X")) {
                 if (chunkLen >= 1) {
                     int flags = b[offset + 8] & 0xFF;
-                    // Bit 1: Animation (0x02), Bit 2: XMP (0x04), Bit 3: Exif (0x08)
-                    if ((flags & 0x0E) != 0) {
-                        throw new IOException("Candidato WebP VP8X contiene flags prohibidos de animación/metadatos: " + flags);
+                    // Bit 1: Animation (0x02)
+                    // Bit 2: XMP (0x04)
+                    // Bit 3: Exif (0x08)
+                    // Bit 5: ICCP (0x20)
+                    if ((flags & 0x2E) != 0) {
+                        throw new IOException("Candidato WebP VP8X contiene flags prohibidos de animación/metadatos/perfil: " + flags);
                     }
                 }
             }
 
-            offset += 8 + chunkLen + (chunkLen % 2);
+            offset += 8 + chunkLen + padByte;
+        }
+
+        if (offset != b.length) {
+            throw new IOException("Estructura RIFF inválida: el cursor final (" + offset + ") no coincide con el fin del archivo (" + b.length + ")");
         }
 
         try (ImageInputStream iis = ImageIO.createImageInputStream(candidate.toFile())) {
