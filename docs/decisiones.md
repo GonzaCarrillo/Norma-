@@ -51,6 +51,35 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 
 ---
 
+## Decisiones Aprobadas — Issue #2 (Diseño Codex v1.0 / Aprobación Orca)
+
+### D8 — Semilla canónica DEFAULT inmutable y clonación relacional
+- **Estado**: Aprobado e implementado en Issue #2.
+- **Contexto**: La especificación exigía clonar una semilla relacional inmutable de 8 piezas para cada nueva sesión de evaluador. En el código legacy previo se creaban constantes Java duplicadas y no existía un registro de semilla en base de datos.
+- **Decisión**: Se crea la sesión canónica `DEFAULT` en `seed.sql` conteniendo exactamente las 8 piezas originales. Se instalan triggers SQL estrictos (`protect_default_sessions_*`, `protect_default_products_*`) que abortan cualquier intento de inserción, actualización o borrado directo sobre `DEFAULT`. La primitiva `ensure(id)` inicializa sesiones nuevas clonando desde `DEFAULT` mediante `INSERT SELECT` en una única transacción atómica.
+- **Consecuencias**: Manifiesto relacional único y libre de duplicación en código Java; inmutabilidad garantizada a nivel motor relacional sin flags desactivables en caliente.
+
+### D9 — Sesión como marcador único de inicialización y catálogo vacío
+- **Estado**: Aprobado e implementado en Issue #2.
+- **Contexto**: Existía ambigüedad sobre si un catálogo sin productos debía interpretarse como una sesión no inicializada y repoblarse automáticamente.
+- **Decisión**: La existencia de la fila en la tabla `sessions` es el único marcador de inicialización. Si un usuario o evaluador vacía su catálogo (`restore([], ...)` o vende todas las piezas), llamadas subsecuentes a `ensure(id)` o `all(id)` respetan el catálogo vacío y jamás re-siembran productos. Solo la acción explícita `reset(id)` repone las 8 piezas de la semilla.
+- **Consecuencias**: Idempotencia estricta en `ensure` y soporte integral para sesiones con vidriera vacía.
+
+### D10 — Numeración monótona de alta-water mark a través de reset y restore
+- **Estado**: Aprobado e implementado en Issue #2.
+- **Contexto**: Se requería que los números de pieza emitidos públicamente fueran estables y no se reciclaran dentro de una sesión, incluso tras reversiones o restauraciones de catálogo.
+- **Decisión**: `next_number` funciona como contador histórico monótono (high-water mark). Las altas de piezas asignan `next_number` y lo incrementan. Al ejecutar `restore` o `reset`, el contador se ajusta a `MAX(contador_anterior, MAX(pieza_restaurada)+1, 9)`, garantizando que un alta posterior a un reset o rollback no reutilice numeración previamente emitida. Los huecos en la secuencia son válidos y esperados.
+- **Consecuencias**: Estabilidad e inmutabilidad referencial de las piezas para clientes y evaluadores.
+
+### D11 — Migrador conservador fail-closed v0→v2 sin dependencias externas
+- **Estado**: Aprobado e implementado en Issue #2.
+- **Contexto**: Migración segura de esquemas legacy sin frameworks pesados (como Flyway o JPA) que alterarían el monolito.
+- **Decisión**: Implementación de `CatalogDatabaseInitializer` que coordina la inspección y migración con `PRAGMA user_version=2`. La migración reconstruye tablas con el patrón seguro `create-new -> copy -> drop-old -> rename-new`, prevalidando tipos enteros, constraints, rangos y ausencia de huérfanos antes de modificar datos. Si se detecta corrupción o un esquema desconocido, el inicializador falla de manera cerrada (fail-closed) con rollback atómico, preservando el estado previo intacto.
+- **Consecuencias**: Actualización atómica y libre de fallos silenciosos, con integridad relacional validada mediante `foreign_key_check` y `quick_check`.
+
+
+---
+
 ## Decisiones y Estado de Fases Posteriores (Pendientes de Auditoría)
 
 - **Persistencia y Catálogo (Issue #2)**: Esquema relacional, inmutabilidad de DEFAULT, aislamiento transaccional y snapshots. *Estado: Pendiente de especificación y auditoría de Issue #2.*
