@@ -1,0 +1,133 @@
+{
+  "V6": {
+    "initial_state": {
+      "cards": [
+        {
+          "pieceNumber": 1,
+          "price": "$ 15.000",
+          "title": "Cuenco rústico"
+        },
+        {
+          "pieceNumber": 2,
+          "price": "$ 18.500",
+          "title": "Jarrón de gres"
+        },
+        {
+          "pieceNumber": 3,
+          "price": "$ 12.000",
+          "title": "Taza panzona"
+        },
+        {
+          "pieceNumber": 4,
+          "price": "$ 20.000",
+          "title": "Maceta de barro"
+        },
+        {
+          "pieceNumber": 5,
+          "price": "$ 14.000",
+          "title": "Plato del taller"
+        },
+        {
+          "pieceNumber": 6,
+          "price": "$ 24.000",
+          "title": "Florero azul"
+        },
+        {
+          "pieceNumber": 7,
+          "price": "$ 16.500",
+          "title": "Compotera"
+        },
+        {
+          "pieceNumber": 8,
+          "price": "$ 9.000",
+          "title": "Vasito de cerámica"
+        }
+      ],
+      "count": 8
+    },
+    "after_unconfirmed_proposal": {
+      "count": 8,
+      "price": "$ 15.000"
+    },
+    "after_price_confirm": {
+      "count": 8,
+      "price": "$ 20.000",
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v6_sse_price_updated.png"
+    },
+    "after_sold_confirm": {
+      "cards": [
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "count": 7,
+      "hasPiece2": false,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v6_sse_sold_removed.png"
+    },
+    "after_undo": {
+      "cards": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "count": 8,
+      "hasPiece2": true,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v6_sse_undo_restored.png"
+    },
+    "after_reset": {
+      "count": 8,
+      "price1": "$ 15.000"
+    },
+    "session_b_isolated": true,
+    "burst_refresh": {
+      "count": 8,
+      "inFlight": false,
+      "refreshPending": false
+    }
+  },
+  "V7": {
+    "disconnected_status": "Reconectando con el taller…",
+    "reconnected_recovery": {
+      "connectionState": "abierta",
+      "price": "$ 30.000",
+      "status": "",
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v7_reconnected_snapshot.png"
+    },
+    "bfcache_cycle": {
+      "closedOnPagehide": true,
+      "recreatedOnPageshow": true
+    }
+  },
+  "V8": {
+    "simulator_opened": {
+      "activeElement": "close",
+      "isOpen": true,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v8_simulator_open.png"
+    },
+    "text_proposal": {
+      "botStatus": "Esperando tu confirmación.",
+      "lastMessage": "Asistente: ¿Confirmás cambiar el precio de la pieza #1 (Cuenco rústico) a $ 25.000? Decime sí o no."
+    },
+    "simulator_flow": {
+      "cancel_verified": true,
+      "demo_confirmed_verified": true,
+      "undo_verified": true,
+      "reset_verified": true,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v8_simulator_flow.png"
+    },
+    "mic_fallback": "Podés mandar otro mensaje.",
+    "close_focus_restored": {
+      "focusedId": "open",
+      "isOpen": false
+    }
+  }
+}
