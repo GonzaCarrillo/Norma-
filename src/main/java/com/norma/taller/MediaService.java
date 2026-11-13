@@ -39,8 +39,10 @@ public class MediaService {
  return result.path("text").asText();
  }catch(org.springframework.web.client.RestClientException e){throw new IllegalArgumentException("No pude transcribir ahora. Probá otra vez o escribime.");}finally{Files.deleteIfExists(temp);}
  }
- public String speak(String text){
- String name=UUID.randomUUID()+".mp3";Path file=root.resolve(name);Process p=null;
+public String speak(String text){
+if(text==null||text.isBlank())return null;
+if(text.length()>1000)return null;
+String name=UUID.randomUUID()+".mp3";Path file=root.resolve(name);Process p=null;
  try{
  p=new ProcessBuilder("edge-tts","--voice","es-AR-TomasNeural","--text",text,"--write-media",file.toString()).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
  if(p.waitFor(12,TimeUnit.SECONDS)&&p.exitValue()==0&&Files.size(file)>0)return "/media/"+name;
