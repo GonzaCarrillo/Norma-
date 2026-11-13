@@ -1,12 +1,11 @@
-# Reporte de Construcción y Verificación — Issue #5: Conciliación Fase 2 (Corrección H2 / H3)
+# Reporte de Construcción y Verificación — Issue #5: Conciliación Fase 2 (Construcción H1 Fallback v3 y Pruebas Deterministas)
 
 **Fecha**: 13 de Noviembre de 2026  
 **Rama**: `GonzaCarrillo/reconcile-5-voice`  
-**Base auditada**: `bc69036` (HEAD con auditoría Copilot `5ccb0d2`)  
-**Diseño de referencia**: `docs/orchestration/issue-5-reconciliation-qa-plan.md` y `docs/orchestration/issue-5-design.md` v1.0  
-**Informe de Auditoría atendido**: `docs/orchestration/issue-5-reconciliation-qa.md` (Dictamen `QA_REJECTED` de Copilot)  
+**Base auditada**: `06f86f7` (HEAD con auditoría previa OpenCode QA_APPROVED para H2/H3)  
+**Diseño de referencia**: `docs/orchestration/issue-5-fallback-design-v3.md` (Codex v3 Aprobado para Despacho), `docs/orchestration/issue-5-reconciliation-qa-plan.md` e `docs/orchestration/issue-5-design.md` v1.0  
 **Autor**: Antigravity (Software Builder / Implementer)  
-**Estado**: Hallazgos H2 y H3 corregidos y acreditados con evidencia real; H1 permanece abierto a nivel de diseño Codex.
+**Estado**: Componente `IntentFallback` y suite determinista implementados; H2/H3 preservados y revalidados; `Api.java` y `BotEngine.java` no modificados en espera del Gate de Integración coordinado tras el cierre de SSE #6.
 
 ---
 
@@ -21,70 +20,63 @@
 - **Artefacto principal generado**:
   - Archivo: `target/taller-1.0.0.jar`
   - Formato: Spring Boot Executable JAR (Spring Boot 3.5.16)
-  - Checksum SHA-256: `e22ed0e754f800f92a12a69497c46b78b9126b0034cee48298be26496e1084eb`
+  - Checksum SHA-256: `b75e29c0e1ea8e47da9bad045b575478438ff20493340f14dd130acf106efe42`
 
 ---
 
 ## 2. Alcance Cerrado y Archivos Modificados
 
-Se mantuvo rigurosamente el alcance cerrado autorizado para Antigravity:
+Se mantuvo rigurosamente el alcance cerrado autorizado para Antigravity para este despacho:
 - **Producción**:
+  - `src/main/java/com/norma/taller/IntentFallback.java` (NUEVO):
+    - Componente `@Component` Spring con contrato:
+      `public Optional<String> normalize(String original, String image, List<Catalog.Product> products)`
+    - Constructor `@Autowired` con `@Value("${groq.api.key:}")`, `IntentParser` y `ObjectMapper`.
+    - Constructor desacoplado para fixtures de pruebas con inyección de `RestClient`.
+    - Configuración Groq: endpoint `https://api.groq.com/openai/v1`, modelo `llama-3.3-70b-versatile`, temperatura `0`, `response_format: {"type": "json_object"}`, timeouts `connectTimeout = 3s` y `readTimeout = 8s`, sin reintentos automáticos.
+    - Sin clave, timeout, error HTTP (4xx/5xx) o JSON inválido -> degradación segura a `Optional.empty()`.
+    - No registra secretos, claves de API ni mensajes del usuario en bitácoras.
+    - Parseo estricto con Jackson: `STRICT_DUPLICATE_DETECTION` activado, verificación de 4 campos exactos (`operation`, `targetEvidence`, `priceEvidence`, `titleEvidence`), comprobación de tipo textual estricto sin coerción (`isTextual()`), y rechazo de tokens residuales trailing.
+    - Anti-alucinación: verificación de que toda evidencia no vacía sea una subcadena literal del texto `original` (`original.contains(evidence)`).
+    - Validación de destino: patrón explícito de pieza (`numero/pieza/#`), sin ambigüedades en el texto original, y existencia activa en `products` (`!product.sold()`).
+    - Validación de precio: `parser.price(priceEvidence) > 0`.
+    - Validación de título: longitud entre 1 y 100 caracteres.
+    - Imagen: la URL proviene estrictamente del parámetro de entrada `image`, nunca del modelo LLM.
+    - Reconstrucción canónica local y verificación estricta con `parser.interpret`. Solo se acepta si retorna `BotModel.Complete` con acción idéntica a los campos validados.
+    - Inmunidad contra inyección de control: si `original` es un comando de control (`CONFIRM`, `CANCEL`, `UNDO`), se descarta de inmediato sin consultar al LLM.
   - `src/main/java/com/norma/taller/MediaService.java`:
-    - Discriminación precisa de códigos de estado HTTP en `RestClientResponseException`:
-      - HTTP 400 y HTTP 422 (audio ilegible/corrupto rechazado por transcriptor) devuelven `IllegalArgumentException("No pude escuchar el audio. Probá otra vez o escribime.")`.
-      - HTTP 401, 403, 429 y 5xx/red/timeout devuelven `IllegalArgumentException("No pude transcribir ahora. Probá otra vez o escribime.")` sin exponer al proveedor externo. No se clasifica todo 4xx como audio corrupto.
-    - Los archivos temporales `.webm` se alojan bajo `root.resolve(".processing")` y se limpian en `finally { Files.deleteIfExists(temp); }`.
-    - `VoiceProcessRunner` verifica ejecutabilidad de herramienta local aislada bajo `target/tts-env/bin/edge-tts` o recurre al binario en `PATH`, conservando degradación no bloqueante si está ausente.
-    - Se conservan idénticos el constructor `@Autowired` con `@Value`, el campo `final Path root;` y la delegación de imagen a `PhotoProcessor`.
+    - Preservada la implementación aprobada en H2 (discriminación 400/422 vs 401/429/5xx, limpieza de `.processing`) y H3 (integración local y no bloqueante con `edge-tts`).
 - **Pruebas**:
+  - `src/test/java/com/norma/taller/IntentFallbackTest.java` (NUEVO):
+    - 21 pruebas unitarias deterministas sin red real ni consumo de cuota Groq (usando mocks con `Answers.RETURNS_SELF` para fluent builder de `RestClient`).
+    - Cobertura exhaustiva:
+      1. Casos válidos de normalización: `CREATE`, `PRICE`, `IMAGE`, `SOLD`.
+      2. Defensas anti-alucinación: modelo inventa título, precio o pieza no presentes en `original`; intento de `CREATE` sin imagen.
+      3. Estructura JSON estricta: campos desconocidos, claves duplicadas, coerción de tipos (número en vez de string), contenido residual trailing.
+      4. Consistencia con catálogo: pieza inexistente, pieza ya vendida, múltiples piezas ambiguas en el original.
+      5. Inmunidad de controles: rechazo inmediato de "si", "no", "cancela", "deshacer", etc., sin invocar al LLM.
+      6. Resiliencia de infraestructura: clave ausente/en blanco (sin llamadas HTTP), errores 401, 429, 500 y timeout de red.
   - `src/test/java/com/norma/taller/MediaServiceTest.java`:
-    - 20 pruebas unitarias deterministas.
-    - Cobertura exhaustiva de H2: pruebas con bytes corruptos no vacíos ante respuestas 400 y 422; pruebas ante 401, 429, 500 y timeout de red; prueba de éxito STT; y aserción explícita en cada una de ellas de que el directorio `.processing` queda sin archivos residuales (`assertProcessingDirectoryEmpty()`).
-    - Cobertura de H3: prueba determinista con runner simulado, casos límite (nulo, vacío, >1000 caracteres, binario ausente, salida != 0, timeout con `destroyForcibly`, archivo 0 bytes) y prueba de acreditación con herramienta real si está disponible.
+    - 20 pruebas unitarias deterministas H2/H3 preservadas y verificadas verdes.
   - `src/test/java/com/norma/taller/ApiAudioTest.java`:
-    - 7 pruebas de integración MockMvc con `@MockitoSpyBean`.
-    - Pruebas ante audio ilegible (400 "No pude escuchar el audio") y fallo de transcripción (401/429 "No pude transcribir ahora"), verificando en ambos casos la preservación del estado de sesión (`IDLE`) y la integridad del catálogo (8 productos de la semilla).
-- **Evidencias y reportes**:
-  - `docs/orchestration/issue-5-reconciliation-build.md`
-  - `issue-5-reconciliation-evidence/builder/` (Surefire XML/TXT, JAR SHA-256, audio real MP3 y reporte `ffprobe` en JSON).
-- **Archivos no modificados**:
-  - Se preservaron intactos `Api.java`, `BotEngine.java`, `BotModel.java`, `IntentParser.java`, `Catalog.java`, `PhotoProcessor.java`, Docker, POM, SQL, propiedades de configuración y assets de frontend.
-  - Se preservaron intactos los documentos preexistentes `docs/orchestration/issue-5-qa.md` y `docs/orchestration/issue-5-approval.md` del commit `d727ae0`.
+    - 7 pruebas de integración MockMvc H2 preservadas y verificadas verdes.
+- **Documentación y diseño**:
+  - `docs/orchestration/issue-5-fallback-design-v3.md`: Especificación técnica formal v3.0 aprobada por Codex.
+  - `docs/orchestration/issue-5-reconciliation-build.md`: Este reporte.
+  - `issue-5-reconciliation-evidence/builder/`: Reportes Surefire (XML y TXT para `IntentFallbackTest`, `MediaServiceTest` y `ApiAudioTest`), `jar-sha256.txt`, audio sintético MP3 y metadatos `ffprobe`.
+- **Archivos estrictamente no modificados**:
+  - `Api.java` y `BotEngine.java` no fueron tocados (aislamiento intencional para evitar colisiones con Issue #6).
+  - `IntentParser.java`, `BotModel.java`, `Catalog.java`, `PhotoProcessor.java`, Dockerfile, POM, SQL, propiedades de configuración y frontend permanecen intactos.
 
 ---
 
-## 3. Resolución de Hallazgos
+## 3. Estado de los Requerimientos de la Issue #5
 
-### H-2: Audio Ilegible vs. Fallo de Transcripción y Eliminación de Temporales
-- **Causa original reportada por Copilot**: La captura genérica de `RestClientException` clasificaba cualquier fallo HTTP de Groq (incluso un 400 por payload corrupto) como "No pude transcribir ahora", y la suite no probaba respuestas 4xx del proveedor ni asertaba la eliminación del temporal de audio.
-- **Corrección**:
-  - `MediaService.transcribe`: Captura primero `RestClientResponseException`. Si el código de estado es `400` (Bad Request) o `422` (Unprocessable Entity), lanza `"No pude escuchar el audio. Probá otra vez o escribime."`. Para otros códigos (401 Unauthorized, 403 Forbidden, 429 Too Many Requests, 5xx Server Error) o excepciones de I/O/timeout (`RestClientException`), lanza `"No pude transcribir ahora. Probá otra vez o escribime."`.
-  - Se garantiza que el temporal `.webm` se cree bajo `root.resolve(".processing")` y se elimine en el bloque `finally`.
-  - Se añadieron pruebas unitarias en `MediaServiceTest` con payloads corruptos no vacíos ante 400, 422, 401, 429, 500 y timeout, verificando la eliminación del temporal mediante `assertProcessingDirectoryEmpty()`.
-  - Se añadieron pruebas en `ApiAudioTest` verificando la respuesta HTTP 400 con los mensajes correspondientes y la preservación de sesión y catálogo.
-
-### H-3: Acreditación de Síntesis Real TTS y Reproducibilidad
-- **Causa original reportada por Copilot**: `edge-tts` no estaba presente en el PATH y la prueba unitaria utilizaba un archivo fabricado con bytes de marcador ID3, sin audio real reproducible ni metadatos verificables.
-- **Corrección y Evidencia**:
-  - Se instaló la herramienta `edge-tts 7.3.1` en un entorno aislado bajo `target/tts-env` sin afectar dependencias del sistema ni POM.
-  - Se ejecutó síntesis real con la voz argentina `es-AR-TomasNeural`:
-    `edge-tts --voice es-AR-TomasNeural --text "El catálogo de El Taller de Norma fue actualizado exitosamente." --write-media issue-5-reconciliation-evidence/builder/sample-voice.mp3`
-  - Se decodificó y analizó con `/usr/bin/ffprobe` (registrado en `issue-5-reconciliation-evidence/builder/tts-probe.json`):
-    - Formato contenedor: `mp3` (MPEG ADTS, layer III, v2)
-    - Codec: `mp3`
-    - Duración: `4.392000` segundos
-    - Bitrate: `48000` bps (48 kb/s)
-    - Sample rate: `24000` Hz
-    - Canales: 1 (mono)
-    - Tamaño de archivo: `26352` bytes
-    - SHA-256 de `sample-voice.mp3`: `aa801018b941a92df9152b2e53c9ee77c5d76e99f2a41bc6719fcc77aa58b941`
-  - `MediaServiceTest` incluye la verificación `speakExitosoConProveedorRealGeneraMp3ReproducibleSiDisponible` que, de contar con el binario local o en PATH, valida la generación de audio real reproducible con cabeceras MP3 válidas (`ID3` o sync frame `0xFF 0xE0`).
-
-### H-1: Requisito de Fallback de Intenciones (Declaración de Estado)
-- Conforme a la instrucción del despacho: "H1 fallback sigue en diseño Codex y no se autoriza activarlo todavía."
-- `IntentFallback` permanece archivado en `docs/orchestration/archive/IntentFallback.java.txt` y no ha sido inyectado en `BotEngine` ni en `Api`. Toda la interpretación de comandos se resuelve a través del analizador gramatical determinista `IntentParser`.
-- Este requerimiento permanece formalmente **abierto** a la espera de la especificación arquitectónica correspondiente por parte de Codex.
-- Se advierte expresamente que el commit `d727ae0` no constituye una aprobación válida de Fase 4 de Codex.
+| Requerimiento | Estado | Detalle y Acreditación |
+|---|---|---|
+| **H-2 (STT Audio Ilegible vs Fallo)** | Aprobado / Verificado | Discriminación HTTP 400/422 vs 401/429/5xx, limpieza `.processing` garantizada en `finally`. 20 tests unitarios y 7 de integración verdes. |
+| **H-3 (TTS Síntesis Real edge-tts)** | Aprobado / Verificado | Síntesis real con `edge-tts 7.3.1` (voz `es-AR-TomasNeural`), MP3 verificado con `ffprobe` (24kHz mono, 4.39s), degradación no bloqueante probada. |
+| **H-1 (Fallback de Intenciones LLM)** | Construido y Verificado (Aislado) | Componente `IntentFallback` implementado bajo diseño Codex v3. 21 pruebas deterministas verdes. Listo para cableado en `Api.java` durante el siguiente gate de integración tras merge de `main`. |
 
 ---
 
@@ -92,15 +84,18 @@ Se mantuvo rigurosamente el alcance cerrado autorizado para Antigravity:
 
 - **Comando**: `export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 && export PATH=$JAVA_HOME/bin:$PATH && mvn -B clean verify`
 - **Exit code**: `0` (BUILD SUCCESS)
-- **Resultados de pruebas**:
-  - `ApiAudioTest`: 7 tests, 0 failures, 0 errors, 0 skipped
+- **Resultados de la suite completa**:
+  - `IntentFallbackTest`: 21 tests, 0 failures, 0 errors, 0 skipped
   - `MediaServiceTest`: 20 tests, 0 failures, 0 errors, 0 skipped
-  - Total global: **209 tests**, 0 failures, 0 errors, 0 skipped
-- **Evidencias persistidas**:
-  - `issue-5-reconciliation-evidence/builder/TEST-com.norma.taller.ApiAudioTest.xml`
-  - `issue-5-reconciliation-evidence/builder/TEST-com.norma.taller.MediaServiceTest.xml`
-  - `issue-5-reconciliation-evidence/builder/com.norma.taller.ApiAudioTest.txt`
-  - `issue-5-reconciliation-evidence/builder/com.norma.taller.MediaServiceTest.txt`
-  - `issue-5-reconciliation-evidence/builder/sample-voice.mp3`
-  - `issue-5-reconciliation-evidence/builder/tts-probe.json`
-  - `issue-5-reconciliation-evidence/builder/jar-sha256.txt`
+  - `ApiAudioTest`: 7 tests, 0 failures, 0 errors, 0 skipped
+  - Suite global del monolito: **230 tests**, 0 failures, 0 errors, 0 skipped
+- **Evidencias persistidas en `issue-5-reconciliation-evidence/builder/`**:
+  - `TEST-com.norma.taller.IntentFallbackTest.xml`
+  - `com.norma.taller.IntentFallbackTest.txt`
+  - `TEST-com.norma.taller.MediaServiceTest.xml`
+  - `com.norma.taller.MediaServiceTest.txt`
+  - `TEST-com.norma.taller.ApiAudioTest.xml`
+  - `com.norma.taller.ApiAudioTest.txt`
+  - `jar-sha256.txt` (b75e29c0e1ea8e47da9bad045b575478438ff20493340f14dd130acf106efe42)
+  - `sample-voice.mp3`
+  - `tts-probe.json`
