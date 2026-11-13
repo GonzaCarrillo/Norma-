@@ -263,48 +263,121 @@ public class CatalogMigrationTest {
         CatalogDatabaseInitializer initVersion = new CatalogDatabaseInitializer(dsVersion);
         assertThrows(IllegalStateException.class, () -> initVersion.initialize());
 
-        // Caso C: Inyeccion de fallo en migracion (trigger temporal que falla al insertar en new_products)
-        Path dbPathFail = tempDir.resolve("test_fail.db");
-        SQLiteDataSource dsFail = new SQLiteDataSource();
-        dsFail.setUrl("jdbc:sqlite:" + dbPathFail.toAbsolutePath());
-        try (Connection conn = dsFail.getConnection()) {
+        // Caso C: Inyeccion de fallo en ruta real de migracion post-copia y antes de commit
+        Path dbPathFail = tempDir.resolve("test_fail_real.db");
+        SQLiteDataSource dsRaw = new SQLiteDataSource();
+        dsRaw.setUrl("jdbc:sqlite:" + dbPathFail.toAbsolutePath());
+        dsRaw.setEnforceForeignKeys(true);
+        try (Connection conn = dsRaw.getConnection()) {
             executeScript(conn, "src/test/resources/db/legacy-v0.sql");
             try (Statement st = conn.createStatement()) {
                 st.execute("INSERT INTO sessions(id, state, next_number) VALUES('session_valid_1', 'IDLE', 9)");
                 st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) " +
-                        "VALUES(1, 'session_valid_1', 1, 'P1', 10000, '/1.png', 0)");
-                // Trigger que aborta si se crea new_products
-                st.execute("CREATE TABLE error_trigger_table (x INT)");
+                        "VALUES(100, 'session_valid_1', 1, 'Pieza Original', 15000, '/assets/orig.webp', 0)");
             }
         }
 
-        // Subclase o ejecucion modificada para inyectar error antes del commit
-        CatalogDatabaseInitializer initFail = new CatalogDatabaseInitializer(dsFail) {
-            @Override
-            public void performMigrationOrBootstrap(Connection conn) throws SQLException {
-                // Inyectamos un error simulado durante la transaccion
-                super.performMigrationOrBootstrap(conn);
-            }
-        };
+        // Inyectar fallo en 'PRAGMA quick_check' (que ocurre post-copia y antes de PRAGMA user_version=2 y commit)
+        javax.sql.DataSource dsFailing = new TestFailingDataSource(dsRaw, "PRAGMA quick_check");
+        CatalogDatabaseInitializer initFail = new CatalogDatabaseInitializer(dsFailing);
 
-        // Verificamos que si se inyecta un error de script o constraint, la base preserva user_version 0 y tablas originales
-        try (Connection conn = dsFail.getConnection()) {
-            conn.setAutoCommit(false);
+        // La ejecucion de migracion debe fallar
+        assertThrows(IllegalStateException.class, () -> initFail.initialize());
+
+        // Verificar rollback total de la base de datos original
+        try (Connection conn = dsRaw.getConnection()) {
             try (Statement st = conn.createStatement()) {
-                st.execute("CREATE TABLE new_sessions(id TEXT PRIMARY KEY)");
-                // Simular fallo
-                throw new SQLException("Simulated failure before commit");
-            } catch (SQLException ex) {
-                conn.rollback();
-            }
-            conn.setAutoCommit(true);
+                // user_version debe seguir siendo 0
+                try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                    assertTrue(rs.next());
+                    assertEquals(0, rs.getInt(1), "user_version debe permanecer en 0 tras rollback");
+                }
 
-            // Confirmar que user_version sigue 0 y tablas originales existen
-            try (Statement st = conn.createStatement();
-                 ResultSet rs = st.executeQuery("PRAGMA user_version")) {
-                assertTrue(rs.next());
-                assertEquals(0, rs.getInt(1));
+                // foreign_keys debe estar en ON (restaurado en finally)
+                try (ResultSet rs = st.executeQuery("PRAGMA foreign_keys")) {
+                    assertTrue(rs.next());
+                    assertEquals(1, rs.getInt(1), "PRAGMA foreign_keys debe haber sido restaurado a ON");
+                }
+
+                // No deben existir tablas temporales intermedias (new_sessions, new_products)
+                try (ResultSet rs = st.executeQuery("SELECT count(*) FROM sqlite_schema WHERE name IN ('new_sessions', 'new_products')")) {
+                    assertTrue(rs.next());
+                    assertEquals(0, rs.getInt(1), "Tablas intermedias new_* no deben existir tras rollback");
+                }
+
+                // Las tablas y datos originales deben estar intactos
+                try (ResultSet rs = st.executeQuery("SELECT count(*) FROM sessions WHERE id='session_valid_1'")) {
+                    assertTrue(rs.next());
+                    assertEquals(1, rs.getInt(1));
+                }
+                try (ResultSet rs = st.executeQuery("SELECT title, price FROM products WHERE id=100")) {
+                    assertTrue(rs.next());
+                    assertEquals("Pieza Original", rs.getString("title"));
+                    assertEquals(15000, rs.getInt("price"));
+                }
             }
         }
+
+        // Recuperacion posterior en arranque limpio sin inyeccion de error: debe migrar exitosamente a v2
+        CatalogDatabaseInitializer initClean = new CatalogDatabaseInitializer(dsRaw);
+        assertDoesNotThrow(() -> initClean.initialize());
+
+        try (Connection conn = dsRaw.getConnection();
+             Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    private static class TestFailingDataSource implements javax.sql.DataSource {
+        private final javax.sql.DataSource delegate;
+        private final String failOnSql;
+
+        public TestFailingDataSource(javax.sql.DataSource delegate, String failOnSql) {
+            this.delegate = delegate;
+            this.failOnSql = failOnSql;
+        }
+
+        @Override public Connection getConnection() throws SQLException { return wrap(delegate.getConnection()); }
+        @Override public Connection getConnection(String u, String p) throws SQLException { return wrap(delegate.getConnection(u, p)); }
+
+        private Connection wrap(Connection c) {
+            return (Connection) java.lang.reflect.Proxy.newProxyInstance(
+                    c.getClass().getClassLoader(),
+                    new Class<?>[]{Connection.class},
+                    (proxy, method, args) -> {
+                        if ("createStatement".equals(method.getName())) {
+                            Statement st = (Statement) method.invoke(c, args);
+                            return wrapStatement(st);
+                        }
+                        return method.invoke(c, args);
+                    }
+            );
+        }
+
+        private Statement wrapStatement(Statement st) {
+            return (Statement) java.lang.reflect.Proxy.newProxyInstance(
+                    st.getClass().getClassLoader(),
+                    new Class<?>[]{Statement.class},
+                    (proxy, method, args) -> {
+                        if (args != null && args.length > 0 && args[0] instanceof String sql) {
+                            if (failOnSql != null && sql.contains(failOnSql)) {
+                                throw new SQLException("Injected test failure on: " + sql);
+                            }
+                        }
+                        return method.invoke(st, args);
+                    }
+            );
+        }
+
+        @Override public java.io.PrintWriter getLogWriter() throws SQLException { return delegate.getLogWriter(); }
+        @Override public void setLogWriter(java.io.PrintWriter out) throws SQLException { delegate.setLogWriter(out); }
+        @Override public void setLoginTimeout(int seconds) throws SQLException { delegate.setLoginTimeout(seconds); }
+        @Override public int getLoginTimeout() throws SQLException { return delegate.getLoginTimeout(); }
+        @Override public java.util.logging.Logger getParentLogger() throws java.sql.SQLFeatureNotSupportedException { return delegate.getParentLogger(); }
+        @Override public <T> T unwrap(Class<T> iface) throws SQLException { return delegate.unwrap(iface); }
+        @Override public boolean isWrapperFor(Class<?> iface) throws SQLException { return delegate.isWrapperFor(iface); }
     }
 }

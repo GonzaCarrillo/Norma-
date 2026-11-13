@@ -71,40 +71,73 @@ public class CatalogPersistenceTest {
     void testP3_physicalFilePragmasAndForeignKeyEnforcement() throws Exception {
         createContextRunner().run(context -> {
             DataSource ds = context.getBean(DataSource.class);
-            try (Connection conn = ds.getConnection();
-                 Statement st = conn.createStatement()) {
+            com.zaxxer.hikari.HikariDataSource hikariDs = (com.zaxxer.hikari.HikariDataSource) ds;
 
+            // Conexion 1
+            Connection conn1 = hikariDs.getConnection();
+            Connection raw1 = conn1.unwrap(org.sqlite.SQLiteConnection.class);
+            try (Statement st = conn1.createStatement()) {
                 // journal_mode en archivo
                 try (ResultSet rs = st.executeQuery("PRAGMA journal_mode")) {
                     assertTrue(rs.next());
                     assertEquals("wal", rs.getString(1).toLowerCase());
                 }
-
                 // foreign_keys activo
                 try (ResultSet rs = st.executeQuery("PRAGMA foreign_keys")) {
                     assertTrue(rs.next());
                     assertEquals(1, rs.getInt(1));
                 }
-
                 // busy_timeout
                 try (ResultSet rs = st.executeQuery("PRAGMA busy_timeout")) {
                     assertTrue(rs.next());
                     assertEquals(5000, rs.getInt(1));
                 }
-
                 // synchronous = NORMAL (1)
                 try (ResultSet rs = st.executeQuery("PRAGMA synchronous")) {
                     assertTrue(rs.next());
                     assertEquals(1, rs.getInt(1));
                 }
-
                 // Rechazo de producto huerfano por foreign key
                 assertThrows(Exception.class, () ->
                         st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) " +
                                 "VALUES('non_existent_sess', 1, 'Huerfano', 1000, '/img.png', 0)"));
             }
+
+            // F6: Expulsar y renovar fisicamente la conexion del pool
+            hikariDs.evictConnection(conn1);
+            conn1.close();
+
+            // Conexion 2 (conexion fisica nueva)
+            Connection conn2 = hikariDs.getConnection();
+            Connection raw2 = conn2.unwrap(org.sqlite.SQLiteConnection.class);
+            assertNotSame(raw1, raw2, "La conexion fisica debe haber sido renovada en el pool");
+
+            try (Statement st = conn2.createStatement()) {
+                try (ResultSet rs = st.executeQuery("PRAGMA journal_mode")) {
+                    assertTrue(rs.next());
+                    assertEquals("wal", rs.getString(1).toLowerCase());
+                }
+                try (ResultSet rs = st.executeQuery("PRAGMA foreign_keys")) {
+                    assertTrue(rs.next());
+                    assertEquals(1, rs.getInt(1));
+                }
+                try (ResultSet rs = st.executeQuery("PRAGMA busy_timeout")) {
+                    assertTrue(rs.next());
+                    assertEquals(5000, rs.getInt(1));
+                }
+                try (ResultSet rs = st.executeQuery("PRAGMA synchronous")) {
+                    assertTrue(rs.next());
+                    assertEquals(1, rs.getInt(1));
+                }
+                assertThrows(Exception.class, () ->
+                        st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) " +
+                                "VALUES('non_existent_sess', 1, 'Huerfano', 1000, '/img.png', 0)"));
+            } finally {
+                conn2.close();
+            }
         });
     }
+
 
     /**
      * P1 Persistence:
