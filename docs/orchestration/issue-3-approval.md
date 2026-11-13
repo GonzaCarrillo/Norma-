@@ -1,0 +1,5 @@
+# Aprobación de diseño — Issue #3
+Orca aprueba issue-3-design.md v1.0 (commit 0df474c).
+Decisiones aprobadas: dominio tipado y codec estricto con compatibilidad legacy; precios hasta intmax y gramática conservadora; no reemplazar borrador con comandos nuevos silenciosamente; no-op conserva historial; undo durante borrador y recuperación de JSON corrupto conforme §6; texto+audio simultáneos rechazados por 400 sin procesar. Conservar esquema/contratos de catálogo #2 y DTO/rutas API.
+Se autoriza explícitamente refactorizar BotEngine incluyendo retirar los dos hunks locales que agregan campo/constructor y llamada IntentFallback dentro de transacción. Diff anterior preservado en issue-3-botengine-prior.patch; mantener IntentFallback.java sin seguimiento íntegro para #5 y ApiTest.java íntegro para #4/#8. No reset/stash/borrado de ajeno.
+Lista cerrada de archivos §9 y fases B1–B4 aprobadas. Cada fase debe esperar gate Orca antes de siguiente. Builder puede hacer commits acotados de archivos autorizados con referencia #3 tras verificación; no push/cierre. Codex auditará final antes de aceptación.

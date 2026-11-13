@@ -1,0 +1,25 @@
+diff --git a/src/main/java/com/norma/taller/BotEngine.java b/src/main/java/com/norma/taller/BotEngine.java
+index 3b83797..a0b6464 100644
+--- a/src/main/java/com/norma/taller/BotEngine.java
++++ b/src/main/java/com/norma/taller/BotEngine.java
+@@ -6,8 +6,8 @@ import org.springframework.transaction.annotation.Transactional;
+ @Service
+ public class BotEngine {
+  public record Reply(String replyText,String replyAudioUrl,String state){}
+- private final Catalog catalog;private final IntentParser parser;private final ObjectMapper json;
+- public BotEngine(Catalog c,IntentParser p,ObjectMapper j){catalog=c;parser=p;json=j;}
++ private final IntentFallback fallback;private final Catalog catalog;private final IntentParser parser;private final ObjectMapper json;
++ public BotEngine(Catalog c,IntentParser p,ObjectMapper j,IntentFallback f){catalog=c;parser=p;json=j;fallback=f;}
+  private String encode(Object o){try{return json.writeValueAsString(o);}catch(Exception e){throw new IllegalStateException(e);}}
+  @Transactional public Reply process(String id,String text,String image){
+  catalog.ensure(id);var session=catalog.session(id);String s=IntentParser.norm(text==null?"":text);
+@@ -36,7 +36,8 @@ public class BotEngine {
+  return reply(id,"Mandame una foto o contame qué pieza querés cambiar.");
+  }
+  try{
+- var intent=parser.parse(text,photo,catalog.all(id));
++ IntentParser.Intent intent;
++ try{intent=parser.parse(text,photo,catalog.all(id));}catch(IllegalArgumentException failure){intent=fallback.parse(text,photo,catalog.all(id),parser).orElseThrow(()->failure);}
+  if((intent.kind().equals("CREATE")||intent.kind().equals("IMAGE"))&&photo==null){
+  catalog.conversation(id,"AWAITING_DETAILS",encode(intent),null);return reply(id,"Me falta la foto. Mandámela y repetí el nombre y precio, o el numerito de la pieza.");
+  }

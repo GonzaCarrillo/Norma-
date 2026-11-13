@@ -1,0 +1,3 @@
+# Aprobación de diseño — Issue #2
+Orca aprueba docs/orchestration/issue-2-design.md versión 1.0. Se aprueba explícitamente: DEFAULT exacto e inmutable; sesión creada una vez como marcador aunque esté vacía o toda vendida; high-water monotónico (reset #9 no reutiliza, próxima alta #10); contratos públicos actuales; migración conservadora v0→v2 con fallo cerrado y sin borrado/reseed; lista de archivos permitidos y pruebas R1–R7, P1–P3, M1–M3, G1.
+Antigravity puede construir únicamente los archivos enumerados en §7, por tareas B1–B4 secuenciales, esperando aceptación Orca de cada predecesora. Respetar cambios locales previos. No ampliar FSM de #3. En esta fase no cerrar issue ni hacer push; aceptación requiere evidence, auditoría Orca y Codex PASS.
