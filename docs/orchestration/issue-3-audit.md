@@ -359,3 +359,136 @@ Orca debe transmitir a Antigravity, sin ampliar la lista de archivos autorizados
 El builder debe mantener regresiones previas y no limitar cada corrección a las frases exactas del auditor: la unidad de validación es el contrato completo de token/expresión/estado, con pruebas proporcionales a las variantes que la implementación realmente admite. Se solicita rechazo/aclaración segura cuando la gramática no resuelve; no cobertura universal de español libre ni aumento del alcance.
 
 Único archivo de repositorio modificado por Codex: **docs/orchestration/issue-3-audit.md**, anexando v1.1 sin borrar v1.0. Preservación ajena y diff de código contra f387257 se verifican al cierre. No push ni cierre de issue; la reauditoría queda entregada con **FAIL accionable**, pendiente de coordinación Orca.
+
+---
+
+## Addendum v1.2 — Reauditoría de 4f2eb56 y reporte f48e6d5
+
+Fecha: **2026-11-13**. Auditor: Codex, Software Architect.
+Implementación real: **4f2eb56951ba7793b9c758670d23829651ad50bc**.
+Reporte documental: **f48e6d5fd2e879d55f2641dca9ec0f0ceb41cdd0**.
+Tarea `task_4ee569f87069`; dispatch `ctx_e52898868681`.
+Diseño/aprobación: v1.0 sin modificaciones; antecedentes v1.0/v1.1 conservados íntegros arriba.
+
+**Dictamen v1.2: FAIL por dos comportamientos reproducidos dentro del contrato aprobado.** La evidencia de exportación, compilación, pruebas y empaquetado ahora está corroborada: no se mantiene el bloqueo anterior de G1. Quedan pendientes rechazo de residuos en precio y aclaración de nombres duplicados durante correcciones; no se exige comprensión de español libre ni funciones de issues posteriores.
+
+### 1. Procedencia, verificación real y límites
+
+Se revisaron AGENTS.md y aprobación conservadas, diseño y auditoría con addendum v1.1, diff completo de implementación (4 archivos: motor/parser y sus dos suites) y reporte posterior (únicamente build-report). Las correcciones literales de F1–F4 anteriores tienen regresiones nuevas que se ejecutaron en la entrega limpia. F5/F6 y T1/T2/D1/A1/U1 no se reabren por nuevas exigencias ni se solicita rehacerlos.
+
+Exportación: **/tmp/norma-issue3-export-v11**. Comparación mediante `git ls-tree`, `git show 4f2eb56:<ruta>` y lectura de cada archivo exportado: **56 archivos versionados, cero discrepancias** frente al SHA real 4f2eb56951ba7793b9c758670d23829651ad50bc. Respecto de f48e6d5 difiere únicamente el reporte documental, como estaba previsto. IntentFallback.java y ApiTest.java ajenos están excluidos de la exportación; siguen sin seguimiento en workspace.
+
+**Corrección factual de trazabilidad:** el SHA largo `4f2eb568f9ef298e3b1c6d3bc8527a050f757e23`, citado en encargo/reporte, **no existe en este repositorio** (`git cat-file -e` falla). El corto 4f2eb56 sí identifica inequívocamente el SHA real indicado arriba. La comparación integral de archivos permite atribuir la exportación al commit correcto sin depender del SHA mal transcrito; corregirlo en el reporte. Esta errata documental no se usa por sí sola para rechazar la implementación.
+
+Evidencia primaria observada:
+
+| Artefacto | Ruta / SHA-256 / resultado |
+|---|---|
+| Log completo | `/tmp/norma-issue3-export-v11/clean-verify.log`; **967da6e2665967fa6d273ae00a7b8c84f49df8e7b8a6f5be99035893163a2c6f** |
+| JAR final | `/tmp/norma-issue3-export-v11/target/taller-1.0.0.jar`; **db5367895ccc85ffbe6e3420756b5782ef72df23cbdabf1ee8cc7bbce3dd3040** |
+| Atribución de compilación | Log clean, compilación de9 fuentes con release25, pruebas, jar/repackage; fuentes exportadas idénticas al commit |
+| Terminación observada | **BUILD SUCCESS**, tiempo40.111s, final2026-11-13T01:54:52-03:00 y **EXIT_CODE=0** al final del log |
+| Runtime XML | Java **25.0.4.1 Microsoft**, java.home `/home/gonzalocar/.jdks/ms-25.0.4.1`, basedir de la exportación |
+| Comando documentado coherente | `JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 PATH=<ese-jdk>/bin:$PATH mvn -B clean verify`, Maven3.8.7 /usr/share/maven corroborado en reauditoría anterior |
+| JAR frente a target/classes | **0 diferencias**;47 archivos `.class` y19 recursos,66 archivos totales bajo BOOT-INF/classes |
+
+El reporte llama “66 entradas de clase” a los66 archivos: corregir la descripción a47 clases+19 recursos. No hay pérdida ni divergencia de empaquetado por ese error de redacción.
+
+XML examinados y hashes: todos coinciden con la tabla publicada en build-report v1.2. Recuentos independientes:
+
+| Suite | Exportación | Local | Fallos/errores/skips |
+|---|---:|---:|---|
+| CatalogMigrationTest | 3 | 3 | 0/0/0 |
+| CatalogPersistenceTest | 3 | 3 | 0/0/0 |
+| CatalogRepositoryTest | 7 | 7 | 0/0/0 |
+| FlowTest | 4 | 4 | 0/0/0 |
+| IntentParserTest | 60 | 60 | 0/0/0 |
+| BotSessionCodecTest | 15 | 15 | 0/0/0 |
+| BotEngineTest | 27 | 27 | 0/0/0 |
+| BotPersistenceTest | 1 | 1 | 0/0/0 |
+| BotApiTest | 6 | 6 | 0/0/0 |
+| ApiTest ajeno | ausente | 2 | 0/0/0 local |
+| **Total** | **126** | **128** | **0/0/0** |
+
+Esta vez **126 versionadas y128 locales están ambos corroborados**, sin usar las dos ApiTest ajenas para aceptar exportación. Los conteos no equivalen a cobertura exhaustiva de toda frase ni sustituyen los dos contraejemplos siguientes. Manifiesto temporal de SHA/commit/log/JAR/XML: `/tmp/norma-issue3-reaudit-v12/evidence.json`, SHA-256 **c1071ddb160f2956a99038bdfa1aa64dc9c9aedb3be96790a2c9aea6527ccf69**.
+
+### 2. Fallos restantes y retrabajo mínimo
+
+#### R1 / F3 — Alta: corrección por nombre duplicado selecciona la primera pieza
+
+Ubicaciones: **BotEngine.java:293–300** y **568–575**. Ambos handlers de corrección TARGET por String filtran títulos disponibles iguales y usan `findFirst()`. No exigen una única coincidencia, mientras que el parser ordinario sí detecta esa misma ambigüedad. §4 del diseño exige aclarar nombres exactos compartidos y prohíbe elegir la primera pieza; §5 conserva esa regla para correcciones en los tres estados.
+
+Reproducción mínima con datos válidos, en una sesión nueva:
+
+1. Seed contiene #3 Taza panzona a12000; agregar otra pieza #9 con título **Taza panzona**, precio9000 e imagen válida (Catalog.insert permitido; también es posible mediante alta confirmada).
+2. Enviar `Cambiá el precio de #2 a 25000` → CONFIRMATION.
+3. Enviar `no, la pieza Taza panzona` → responde **“¿Confirmás cambiar el precio de la pieza #3 (Taza panzona) a $25.000?”**, guarda target3 sin aclarar que #9 tiene el mismo nombre.
+4. Un sí posterior cambia #3 a25000 mientras #9 queda9000. El resumen y la confirmación no justifican resolver arbitrariamente una referencia que el requisito manda aclarar.
+
+En DETAILS ocurre lo mismo: iniciar `Cambiá el precio de #2` y corregir con el nombre duplicado guarda PRICE target3 y pide precio, sin preguntar numerito entre3/9. Como control positivo, `parser.interpret("Sacá la taza panzona",...)` con el mismo catálogo devuelve Ambiguous candidatos[3,9]. Por tanto no es una expectativa nueva ni limitación de español libre: dos recorridos del sistema tratan de manera incompatible la misma identidad nominal exacta.
+
+**Corrección acotada:** en ambos handlers, resolver la lista completa y aceptar únicamente cardinalidad1; si hay varias coincidencias, conservar íntegro el borrador/snapshot, preguntar por numeritos/títulos candidatos y esperar la aclaración explícita. La corrección posterior `no, la pieza #9` debe seleccionar9, conservar precio/operación y volver a pedir confirmación. No cambiar esquemas/DTO, no prohibir duplicados globalmente ni agregar heurística de similitud. Agregar regresiones de CONFIRMATION y DETAILS con títulos iguales normalizados (mayúsculas/tildes), y controles de nombre único/#N; productos y metadata sin cambios durante la aclaración.
+
+#### R2 / F1 — Alta: extracción de precio todavía descarta texto residual
+
+Ubicación: **IntentParser.java:753–778**. La corrección detecta varios intentos numéricos con isPriceCandidate, pero elimina por completo los demás chunks y acepta el único que considera candidato. §4 exige consumir expresión completa y rechazar texto residual; la salida segura ante datos ajenos a la gramática es aclarar, no interpretar su significado.
+
+Probes mínimos sobre catálogo seed:
+
+| Mensaje | Resultado observado |
+|---|---|
+| `Cambiá el precio de #2 a 15000 por nada` | Complete ChangePrice(2,15000) |
+| `Cambiá el precio de #2 a nada por 15000` | Complete ChangePrice(2,15000) |
+
+El fragmento `nada` se pierde tanto antes como después del monto válido. La presencia de un único monto válido no vuelve válida una expresión que contiene otro delimitador y residuo no reconocido. Es la misma pérdida de información de F1; los casos previos decimal/negativo/overflow+otro monto ahora se rechazan correctamente, pero el contrato no se limita a esos tres tipos de fragmento.
+
+**Corrección acotada:** validar también los tramos descartados dentro de la expresión de precio; después de aislar verbo/destino y delimitador permitido, consumir todo el importe y rechazar/aclarar si queda residuo no autorizado o más de un tramo de importe. No convertir todo el resto de la oración en candidatos por palabras numéricas ni implementar interpretación de “nada”: basta respuesta dirigida sin Complete y conservación de borrador. Mantener títulos con números, precio agrupado, números hablados y quince mil/15 lucas/dieciocho quinientos. Agregar estos dos contraejemplos con un precio válido único y sin residuos como control positivo.
+
+### 3. Prueba dirigida realizada y conservación
+
+Solo se ejecutó un harness temporal: `/tmp/norma-issue3-reaudit-v12/Probe.java`, salida `/tmp/norma-issue3-reaudit-v12/probe.log`, **exit0** como impresión de resultados, no PASS de los comportamientos. Usa JDK25 source-file launcher y el classpath del XML de la **exportación verificada** capturado en `/tmp/norma-issue3-v12-classpath`; compila únicamente el harness temporal. Se ejecuta BotEngine proxy real de Spring contra DB/uploads efímeros `norma-issue3-v12-db-*`, sin clave/red/TTS. No Maven, reconstrucción de producción ni acceso a DB de usuario.
+
+Salida esencial:
+
+```text
+normal_name => Ambiguous ... candidates=[3,9]
+duplicate_name_correction => CONFIRMATION ... #3 (Taza panzona) ... 25.000
+pending_after_duplicate => PRICE target=3 price=25000
+price_after_yes #3=25000 #9=9000
+details_pending => PRICE target=3
+residual:... a 15000 por nada => Complete ChangePrice(2,15000)
+residual:... a nada por 15000 => Complete ChangePrice(2,15000)
+```
+
+Se comprobaron los hashes de IntentFallback, ApiTest y AGENTS: idénticos a los registrados en v1.0/v1.1 y al manifiesto anterior de diseño. `git diff 3532eeb f48e6d5 --check` terminó exit0. No se alteró ningún archivo ajeno; el registro de medios sigue como producción original y los stubs permanecen exclusivamente en tests.
+
+### 4. Matriz final v1.2 de hallazgos y criterios
+
+| Hallazgo anterior | Estado v1.2 | Evidencia |
+|---|---|---|
+| F1 | **Pendiente R2** | Variantes anteriores corregidas y ejecutadas; selección de chunk válido todavía omite residuos no autorizados |
+| F2 | Cerrado | Prefijo extraído una vez, título Es amor preservado, gramática corregida y lucas conservado; regresiones verificadas |
+| F3 | **Pendiente R1** | #N y parcial incompatible reparados; nombres duplicados en nueva ruta de corrección usan findFirst |
+| F4 | Cerrado | Foto no aplicable conserva borrador PRICE/SOLD; campos por operación coherentes, roundtrip y recuperación del codec |
+| F5 | Cerrado | Longitud uniforme, formato argentino y respuestas de identificación conservadas |
+| F6 | Cerrado | Registro real de medios restaurado; stub/root solo en tests |
+| F7 | Cerrado evidencia sustancial | Exportación exacta, XML126, log clean verify exitoso y JAR idéntico; corregir erratas de SHA largo y66 archivos en reporte |
+
+| Criterio §10 | Dictamen v1.2 | Motivo |
+|---|---|---|
+| P1 | **FAIL** | Precio con residuos omitidos produce acción, R2 |
+| P2 | **FAIL** | Nombre duplicado en corrección elige primera coincidencia, R1 |
+| F1 | PASS mecanismo | Cuatro mutaciones solo tras confirmación, snapshot previo y limpieza atómicos |
+| F2 | **FAIL** | Aclaración de destino durante correcciones no respeta ambigüedad, R1 |
+| F3 | PASS | Sí duplicado/no-op/historial y serialización conservados |
+| U1 | PASS | Undo cuatro operaciones, slot único, A+B, borrador, vacío, high-water y reset conservados |
+| J1 | PASS | Codec estricto, legacy y snapshot íntegro; corrección anterior de payloads reparada |
+| T1 | PASS | Triggers reales y rollback completo, pruebas exportadas verdes |
+| T2 | PASS | Carreras reales y comprobación de resultados seriales/aislamiento |
+| D1 | PASS | Cinco contextos/pools reales sobre archivo y recuperación de conversación/undo |
+| A1 | PASS |6 pruebas API con medios simulados, DTO/rutas intactos y confirmación sin duplicación |
+| G1 | PASS |126 versionadas, clean verify/log/exit0, exportación exacta y JAR concordante |
+
+No se solicita repetir construcción/verificación para reparar únicamente redacción del reporte: corregir sus dos erratas es documental. Como R1/R2 sí requieren código, el builder deberá ejecutar sus regresiones y la verificación final sobre el nuevo commit autorizado, preservando todo lo ya cerrado. Orca coordina ese retrabajo mínimo y la siguiente revisión; no se aceptan las dos omisiones como deuda ni se amplía alcance para resolverlas.
+
+Único archivo de repositorio modificado por esta reauditoría: **docs/orchestration/issue-3-audit.md**, agregando este v1.2. No producción, push ni cierre de issue. **FAIL de conformidad entregado; pendiente resolver R1/R2 antes de aceptación de Orca.**
