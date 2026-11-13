@@ -6,6 +6,7 @@ import java.awt.image.ColorModel;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.Semaphore;
@@ -552,9 +553,51 @@ class PhotoProcessor {
     }
 
     private void verifyWebPCandidate(Path candidate) throws IOException {
+        byte[] b = Files.readAllBytes(candidate);
+        if (b.length < 12) {
+            throw new IOException("Candidato WebP demasiado corto (" + b.length + " bytes)");
+        }
+        if (b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F' ||
+            b[8] != 'W' || b[9] != 'E' || b[10] != 'B' || b[11] != 'P') {
+            throw new IOException("Candidato no tiene encabezado RIFF/WEBP válido");
+        }
+        long riffLen = (b[4] & 0xFFL) | ((b[5] & 0xFFL) << 8) | ((b[6] & 0xFFL) << 16) | ((b[7] & 0xFFL) << 24);
+        if (riffLen + 8 != b.length && riffLen + 8 + 1 != b.length) {
+            throw new IOException("Contenedor RIFF inconsistente: longitud declarada " + riffLen + ", bytes reales " + b.length);
+        }
+
+        // Inspeccionar chunks RIFF: prohibir EXIF, XMP, animaciones y flags prohibidos en VP8X
+        int offset = 12;
+        while (offset + 8 <= b.length) {
+            String fourCC = new String(b, offset, 4, StandardCharsets.US_ASCII);
+            long chunkLen = (b[offset + 4] & 0xFFL) | ((b[offset + 5] & 0xFFL) << 8) |
+                            ((b[offset + 6] & 0xFFL) << 16) | ((b[offset + 7] & 0xFFL) << 24);
+            if (chunkLen < 0 || offset + 8 + chunkLen > b.length) {
+                throw new IOException("Chunk " + fourCC + " con longitud inválida o truncada: " + chunkLen);
+            }
+
+            if (fourCC.equalsIgnoreCase("EXIF") || fourCC.equalsIgnoreCase("XMP ") || fourCC.trim().equalsIgnoreCase("XMP")) {
+                throw new IOException("Candidato WebP contiene metadatos prohibidos: " + fourCC);
+            }
+            if (fourCC.equals("ANIM") || fourCC.equals("ANMF")) {
+                throw new IOException("Candidato WebP contiene chunks de animación prohibidos: " + fourCC);
+            }
+            if (fourCC.equals("VP8X")) {
+                if (chunkLen >= 1) {
+                    int flags = b[offset + 8] & 0xFF;
+                    // Bit 1: Animation (0x02), Bit 2: XMP (0x04), Bit 3: Exif (0x08)
+                    if ((flags & 0x0E) != 0) {
+                        throw new IOException("Candidato WebP VP8X contiene flags prohibidos de animación/metadatos: " + flags);
+                    }
+                }
+            }
+
+            offset += 8 + chunkLen + (chunkLen % 2);
+        }
+
         try (ImageInputStream iis = ImageIO.createImageInputStream(candidate.toFile())) {
             if (iis == null) {
-                throw new IOException("No se pudo abrir candidato WebP");
+                throw new IOException("No se pudo abrir candidato WebP para decodificación");
             }
             Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
             if (!readers.hasNext()) {
@@ -566,8 +609,18 @@ class PhotoProcessor {
                 if (!r.getFormatName().equalsIgnoreCase("WEBP")) {
                     throw new IOException("El formato del candidato no es WebP");
                 }
-                if (r.getWidth(0) != TARGET_WIDTH || r.getHeight(0) != TARGET_HEIGHT) {
-                    throw new IOException("Las dimensiones del WebP candidato son incorrectas");
+                boolean[] warningOccurred = new boolean[1];
+                r.addIIOReadWarningListener((source, warning) -> warningOccurred[0] = true);
+
+                BufferedImage decoded = r.read(0);
+                if (decoded == null) {
+                    throw new IOException("No se pudo decodificar el contenido del WebP candidato");
+                }
+                if (warningOccurred[0]) {
+                    throw new IOException("Candidato WebP produjo advertencias durante la decodificación");
+                }
+                if (decoded.getWidth() != TARGET_WIDTH || decoded.getHeight() != TARGET_HEIGHT) {
+                    throw new IOException("Las dimensiones del WebP candidato son incorrectas: " + decoded.getWidth() + "x" + decoded.getHeight());
                 }
             } finally {
                 r.dispose();
