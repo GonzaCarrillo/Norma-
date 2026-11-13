@@ -23,7 +23,7 @@ La auditoría se ejecutó sobre `git archive HEAD` exportado en `target/qa.sojvN
 
 | Criterio | Resultado | Evidencia y límite |
 |---|---|---|
-| V1 — Zoom nativo a 100% y 200%, con indicador visible, emulación desactivada | **BLOCKED** | Brave `156.1.98.63` abrió el JAR auditado en un perfil aislado; ventana de `1050×708`. `orca computer capabilities` informa captura/click disponibles, pero `hotkey=false` y `surfaces.menus=false`. El intento de abrir el menú nativo no lo mostró. No se pudo obtener ni verificar el indicador de 100%/200%; CSS zoom, DPR y viewport scale no se usaron. |
+| V1 — Zoom nativo a 100% y 200%, con indicador visible, emulación desactivada | **Aceptación manual del usuario; sin evidencia técnica aportada** | El usuario confirmó manualmente que probó y el zoom funciona. La observación de QA sobre la falta de acceso al indicador queda como antecedente técnico, no como bloqueo vigente de este gate. No se informaron navegador, medidas, método ni capturas; Copilot no los atribuye a su auditoría. Ver adenda. |
 | V1 — Reflow, títulos largos y capturas de la misma ventana a 200% | **BLOCKED / evidencia parcial** | `docs/orchestration/issue-6-corrective-evidence/builder/builder_evidence.json` informa 8 tarjetas uniformes, ratio fotográfico 4:3 y sin scroll para 1440, 768, 640, 375 y 320 CSS px. No acredita zoom nativo: todos los campos `screenshot` son `null`, no contiene la verificación con títulos largos al 200%, y el proceso del servidor figura con `exit_code=-9`. |
 | Navegación por teclado, diálogo de foto, Escape y retorno de foco | **PASS, solo en navegador embebido al zoom por defecto** | Tab enfocó “Ir a las piezas”; Enter abrió la foto y enfocó `#close-zoom`; Escape cerró y devolvió el foco al botón de la pieza. Esto no sustituye V1-zoom200. |
 | Simulador: apertura/cierre por teclado y retorno de foco | **PASS, solo en navegador embebido al zoom por defecto** | Enter abrió `#sim` y enfocó `#close`; Escape cerró y devolvió foco a `#open`. |
@@ -32,7 +32,15 @@ La auditoría se ejecutó sobre `git archive HEAD` exportado en `target/qa.sojvN
 
 ## Bloqueos y hallazgos
 
-1. **Bloqueo de aceptación V1-zoom200.** Se requiere una captura de navegador de escritorio que muestre el control nativo a 100% y 200%, además de mediciones y capturas de la misma ventana. El proveedor GUI presente en esta sesión no expuso menú ni atajo de zoom controlable; la ventana de Brave usada para inspección pertenecía a un perfil QA separado y no se alteró la ventana preexistente del usuario. La vista embebida de Orca y las mediciones CSS no satisfacen el requisito. El diseño v2 exige `QA_REJECTED` cuando este control no se puede verificar.
+1. **Limitación técnica observada para V1-zoom200.** Durante la auditoría Copilot no obtuvo una captura del indicador nativo: el proveedor GUI no expuso menú ni atajo de zoom controlable. Esta observación queda supersedida como bloqueo de aceptación por la confirmación manual del usuario registrada en la adenda; no se convierte en evidencia técnica de navegador o medición.
 2. **Observación intermitente de SSE.** Reproducción observada una vez: cerrar el lector del stream A y ejecutar la confirmación offline en la secuencia de `StorefrontSseTest`; resultado observado HTTP 500, esperado respuesta satisfactoria y recuperación del estado mediante GET al reconectar. El log apunta a la finalización de un emitter async ya fallido. No se reprodujo en la prueba aislada ni en la segunda suite completa; se informa sin atribuir causa definitiva ni cambiar código fuera de alcance.
 
-**Conclusión:** `QA_REJECTED` por evidencia obligatoria de zoom nativo ausente. El build exitoso repetido y las verificaciones de teclado no autorizan aprobar V1 ni cerrar la issue. No se realizaron cambios de producción.
+**Conclusión:** `QA_REJECTED` mientras siga abierto el hallazgo de SSE descrito arriba. La aceptación manual del zoom no resuelve ese hallazgo ni constituye `QA_APPROVED`. No se realizaron cambios de producción.
+
+## Adenda — Aceptación manual de V1-zoom200
+
+**Fuente:** confirmación manual del usuario, comunicada por Orca en el despacho `task_ad01f46c353f` / `ctx_5e59a6ba24b0`: «la #6 el zoom ya lo probe yo y funciona, dalo por hecho, y continua con tus tareas».
+
+Conforme a esa instrucción, la confirmación del usuario satisface el gate de V1-zoom200 para esta revisión y reemplaza el requisito de que Copilot repita la ejecución automatizada. El usuario no reportó navegador, versión, dimensión de ventana, valores observados, método ni capturas. No se inventa ni se atribuye esa evidencia a Copilot; la limitación técnica observada durante esta auditoría queda registrada solo como antecedente.
+
+El hallazgo intermitente de SSE permanece **ABIERTO**. Antigravity tiene asignado su diagnóstico en `ctx_da62f6aa396a`; no se emite `QA_APPROVED` hasta recibir y revisar la resolución sobre la entrega correspondiente. Esta adenda es documental: no se repitieron pruebas ni se modificó código de producción.
