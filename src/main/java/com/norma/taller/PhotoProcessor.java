@@ -51,6 +51,11 @@ class PhotoProcessor {
         try {
             Files.createDirectories(this.stagingDir);
             Files.createDirectories(this.root);
+            Path realRoot = this.root.toRealPath();
+            Path realStaging = this.stagingDir.toRealPath();
+            if (!realStaging.startsWith(realRoot) || Files.isSymbolicLink(this.stagingDir) || Files.isSymbolicLink(this.root)) {
+                throw new IOException("Ruta de staging o root insegura o symlink no permitido");
+            }
         } catch (IOException e) {
             throw new UncheckedIOException("No se pudo inicializar directorios de medios", e);
         }
@@ -66,6 +71,7 @@ class PhotoProcessor {
         }
 
         List<Path> temps = new ArrayList<>();
+        Throwable mainError = null;
         try {
             Path tempInput = Files.createTempFile(stagingDir, "upload-", ".tmp");
             temps.add(tempInput);
@@ -100,12 +106,26 @@ class PhotoProcessor {
             // Codificar con WebP provider en hasta 8 intentos
             String finalName = encodeAndPublish(revealedImage, temps);
             return "/media/" + finalName;
+        } catch (Throwable t) {
+            mainError = t;
+            throw t;
         } finally {
             semaphore.release();
+            IOException cleanupError = null;
             for (Path p : temps) {
                 try {
                     Files.deleteIfExists(p);
-                } catch (IOException ignored) {
+                } catch (IOException e) {
+                    if (cleanupError == null) cleanupError = e;
+                    else cleanupError.addSuppressed(e);
+                }
+            }
+            if (cleanupError != null) {
+                org.slf4j.LoggerFactory.getLogger(PhotoProcessor.class).error("Fallo al limpiar temporales de medios", cleanupError);
+                if (mainError != null) {
+                    mainError.addSuppressed(cleanupError);
+                } else {
+                    throw cleanupError;
                 }
             }
         }
@@ -516,7 +536,7 @@ class PhotoProcessor {
         while (true) {
             uuidName = UUID.randomUUID().toString() + ".webp";
             finalDest = root.resolve(uuidName);
-            if (!Files.exists(finalDest)) {
+            if (!Files.exists(finalDest, LinkOption.NOFOLLOW_LINKS)) {
                 break;
             }
         }
@@ -580,11 +600,8 @@ class PhotoProcessor {
                         }
                     }
                 }
-                if (lossyType == null && types != null && types.length > 0) {
-                    lossyType = types[0];
-                }
                 if (lossyType == null) {
-                    throw new IOException("No se encontró modo de compresión con pérdida en el writer WebP");
+                    throw new IOException("No se encontró modo de compresión con pérdida explícito en el writer WebP");
                 }
                 param.setCompressionType(lossyType);
                 param.setCompressionQuality(quality);
