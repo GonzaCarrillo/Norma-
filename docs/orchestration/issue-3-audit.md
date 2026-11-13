@@ -492,3 +492,97 @@ Se comprobaron los hashes de IntentFallback, ApiTest y AGENTS: idénticos a los 
 No se solicita repetir construcción/verificación para reparar únicamente redacción del reporte: corregir sus dos erratas es documental. Como R1/R2 sí requieren código, el builder deberá ejecutar sus regresiones y la verificación final sobre el nuevo commit autorizado, preservando todo lo ya cerrado. Orca coordina ese retrabajo mínimo y la siguiente revisión; no se aceptan las dos omisiones como deuda ni se amplía alcance para resolverlas.
 
 Único archivo de repositorio modificado por esta reauditoría: **docs/orchestration/issue-3-audit.md**, agregando este v1.2. No producción, push ni cierre de issue. **FAIL de conformidad entregado; pendiente resolver R1/R2 antes de aceptación de Orca.**
+
+---
+
+## Addendum v1.3 — Cierre de R1/R2 sobre cdabcae
+
+Fecha: **2026-11-13**. Auditor: Codex, Software Architect.
+Implementación auditada: **cdabcaefddc7db2eb5c2482fe3f5dc1b2975e390**.
+Reporte posterior: **f5de345c5b7f8e994039b7765eb24f1ecb36181b** (solo documentación).
+Tarea `task_ca6679234869`; dispatch `ctx_d49ea45d06d0`.
+Referencias: diseño v1.0 aprobado por Orca, auditoría completa y addenda v1.1/v1.2 conservados arriba.
+
+**Dictamen v1.3: PASS de conformidad técnica de issue #3. R1 y R2 quedan cerrados, sin pendientes de construcción para el alcance aprobado.** Orca conserva la decisión de aceptación/cierre de la issue. Este dictamen no extiende la aceptación a integraciones de voz, medios, SSE, frontend o despliegue de issues posteriores.
+
+### 1. Revisión y evidencia atribuible
+
+Se revisaron las instrucciones/aprobación vigentes, el diseño y los dos pendientes de v1.2, diff completo de cdabcae (BotEngine, IntentParser y sus dos suites), reporte v1.3 y pruebas nuevas. No se cambió producción ni pruebas ni se ejecutó Maven/build/probes adicionales: el código resuelve los contraejemplos mediante reglas concretas y las nuevas regresiones ejecutadas aportan evidencia suficiente, sin otra brecha que justifique repetir ejecución.
+
+Exportación **/tmp/norma-issue3-export-v12**: sus **56 archivos versionados** coinciden byte por byte con `git show cdabcae:<ruta>` para cada entrada de `git ls-tree`: **cero discrepancias**. `git diff cdabcae f5de345 --name-only` identifica únicamente **docs/orchestration/issue-3-build-report.md**, diferencia documental posterior esperada. El SHA largo de cdabcae coincide con el reportado. El reporte rectifica además el SHA largo previo de4f2eb56 y describe correctamente **47 archivos .class +19 recursos**,66 archivos totales; no quedan esas erratas de v1.2 pendientes.
+
+Artefactos realmente examinados:
+
+| Evidencia | Resultado |
+|---|---|
+| `/tmp/norma-issue3-export-v12/clean-verify.log` | SHA-256 **f0d446b055a51db0f1863dcc731c643ab66436ff11c411d4bd2280ebfb33813c**, coincide con reporte/Orca |
+| Terminación del log | **BUILD SUCCESS**, **EXIT_CODE=0**, tiempo35.757s, final **2026-11-13T02:18:06-03:00**; fases clean/compile/test/jar/repackage observadas |
+| `/tmp/norma-issue3-export-v12/target/taller-1.0.0.jar` | SHA-256 **07718bb9d856645652cd14d4c2d1e275c4bc82731326e1ce9e663cdcb1d31e7d**, coincide con reporte/Orca |
+| JAR frente a compilación exportada | Todas las entradas de target/classes coinciden con BOOT-INF/classes: **47 clases y19 recursos, cero diferencias** |
+| XML exportados | basedir **/tmp/norma-issue3-export-v12**, Java **25.0.4.1 Microsoft**, java.home **/home/gonzalocar/.jdks/ms-25.0.4.1**; cada SHA-256 coincide con su fila del reporte v1.3 |
+| Herramientas/comando | Maven **3.8.7**, /usr/share/maven, comando documentado `mvn -B clean verify` con JAVA_HOME/PATH del JDK25 indicado; coherente con log, XML y versión corroborada en reauditoría anterior |
+
+Se confirma la cadena de procedencia: fuentes idénticas al commit, compilación limpia de esas fuentes en la exportación, pruebas con basedir de esa exportación y clases empaquetadas idénticas a su target/classes. No se atribuyen a este commit el JAR local antiguo ni exportaciones de entregas anteriores.
+
+| Suite | Exportación | Workspace local | Fallos/errores/skips |
+|---|---:|---:|---|
+| CatalogMigrationTest | 3 | 3 | 0/0/0 |
+| CatalogPersistenceTest | 3 | 3 | 0/0/0 |
+| CatalogRepositoryTest | 7 | 7 | 0/0/0 |
+| FlowTest | 4 | 4 | 0/0/0 |
+| IntentParserTest | 61 | 61 | 0/0/0 |
+| BotSessionCodecTest | 15 | 15 | 0/0/0 |
+| BotEngineTest | 30 | 30 | 0/0/0 |
+| BotPersistenceTest | 1 | 1 | 0/0/0 |
+| BotApiTest | 6 | 6 | 0/0/0 |
+| ApiTest ajeno | ausente | 2 | 0/0/0 local |
+| **Total observado** | **130** | **132** | **0/0/0** |
+
+Los dos métodos de ApiTest siguen fuera del árbol versionado y no se cuentan para aceptar la entrega limpia. Los recuentos son métodos/casos realmente ejecutados, no una afirmación de cobertura universal. Manifiesto temporal independiente de hashes/commit/XML: **/tmp/norma-issue3-audit-v13/evidence.json**, SHA-256 **3e4a1ef17862e0a782f75283ead20a958d7a9e74bc8ffe0908be1be362a32ddf**.
+
+### 2. Cierre exacto de R1 y R2
+
+**R1 — PASS.** En handleCorrectionInConfirmation y handleCorrectionInDetails se obtiene la lista completa de coincidencias por nombre normalizado entre disponibles. Cardinalidad1 acepta el destino; varias coincidencias responden candidatos/numeritos y retornan sin escribir conversación/snapshot/productos; cero coincidencias informa ausencia conservando borrador. Ya no hay `findFirst()` sobre la resolución nominal ambigua. La aclaración explícita posterior `no, la pieza #9` pasa por el destino validado y vuelve a preguntar; solo el sí posterior muta.
+
+Las regresiones nuevas testDuplicateNameCorrectionInConfirmationRequiresPieceNumberClarification y testDuplicateNameCorrectionInDetailsRequiresPieceNumberClarification ejercitan el fixture#3/#9 y variantes de mayúsculas, conservan el target original durante la ambigüedad, aclaran#9 y verifican que solo esa pieza cambia de precio, con#2/#3 intactas. testUniqueNameCorrectionResolvesDirectly cubre el caso positivo de nombre único. Los tres métodos figuran en la suite exportada de30 pruebas, sin fallos. La revisión del retorno sin escritura complementa la comparación de campos de los tests para confirmar preservación de metadata.
+
+**R2 — PASS.** extractPricePortion conserva todos los tramos no vacíos entre delimitadores, sin filtrarlos por isPriceCandidate. Más de un tramo se rechaza, tenga o no forma numérica; el único tramo restante se somete al parser estricto completo, por lo que no desaparece residuo antes/después de un monto. La distinción de `el precio` como parte del comando evita rechazar el caso válido por un delimitador espurio. Se conserva extracción independiente de referencias y títulos; la corrección acotada de continuación con `y` mantiene detección de referencias múltiples, cuya regresión anterior sigue verde.
+
+El nuevo testPriceExpressionRejectsResidualChunksBeforeAndAfterValidAmount reproduce **a15000 por nada** y **a nada por15000**, exige Invalid en ambos y comprueba controles positivos **a15000**, **por15000** y **por15 lucas**. Se ejecutó dentro de IntentParserTest61/0/0/0 en exportación. Las regresiones anteriores de quince mil, 15 lucas, dieciocho quinientos, rangos, monto compuesto inválido, referencias y títulos siguen presentes y verdes. No se exige interpretar el significado de residuos ajenos a la gramática: se solicita aclaración sin generar acción.
+
+### 3. Matriz final y alcance conservado
+
+| Hallazgo | Estado final | Evidencia de cierre |
+|---|---|---|
+| F1 / R2 | **Cerrado** | Expresión íntegra sin seleccionar fragmentos; residuos, varios montos, decimales/overflow y referencias cubiertos por correcciones y regresiones conservadas |
+| F2 | **Cerrado** | Prefijos/títulos y números argentinos corregidos; sin cambios regresivos en esta iteración |
+| F3 / R1 | **Cerrado** | Nombres únicos/duplicados tratados por cardinalidad en ambos handlers, aclaración explícita y protección de borrador |
+| F4 | **Cerrado** | Invariantes/codec/snapshot y foto no aplicable permanecen conformes, regresiones verdes |
+| F5 | **Cerrado** | Longitud, formatos y recuperación aprobados conservados |
+| F6 | **Cerrado** | Producción de medios original; stubs exclusivamente de test conservados |
+| F7 | **Cerrado** | Reporte corregido y evidencia limpia atribuible130/0/0/0, log/JAR/SHA/versiones concordantes |
+
+| Criterio §10 | Dictamen v1.3 | Base de aceptación |
+|---|---|---|
+| P1 | **PASS** | R2 y parser/regresiones previas verdes, expresión/precio estrictos |
+| P2 | **PASS** | R1 y resolución numérica/nominal/ambigüedad conservadas |
+| F1 | **PASS** | Cuatro operaciones solo tras confirmación; criterio ya cerrado y regresión conservada |
+| F2 | **PASS** | Correcciones/ambigüedad, datos parciales y borrador protegido; pendientes anteriores resueltos |
+| F3 | **PASS** | Duplicado sí/no-op y consumo de borrador; aceptación previa conservada |
+| U1 | **PASS** | Undo cuatro operaciones, slot único, A+B, borrador, vacío, high-water/reset; aceptación previa conservada |
+| J1 | **PASS** | Codec estricto, legacy/recuperación y snapshot exacto; sin cambios regresivos |
+| T1 | **PASS** | Triggers reales, rollback completo Product/Session desde transacción nueva; prueba conservada y ejecutada |
+| T2 | **PASS** | Carreras reales con resultados seriales/aislamiento; prueba conservada y ejecutada |
+| D1 | **PASS** | Cinco contextos/pools reales sobre archivo y recuperación FSM/undo; prueba conservada y ejecutada |
+| A1 | **PASS** |6 pruebas API con medios simulados, DTO/rutas intactos y confirmación sin duplicación |
+| G1 | **PASS** |130 pruebas versionadas, exportación exacta, clean verify exitoso y JAR concordante |
+
+La implementación cambia exclusivamente cuatro archivos autorizados y el commit posterior solo el reporte. `git diff 902bc75 f5de345 --check` termina exit0. Catalog/schema/seed/inicializador/configuración/POM/MediaService, FlowTest y suites Catalog* siguen intactos; no se alteran contratos públicos, esquema SQLitev2 ni políticas aprobadas de catálogo#2. No se reincorpora proveedor externo en la transacción.
+
+Los hashes de IntentFallback.java, ApiTest.java y AGENTS.md coinciden con los registrados en v1.0/v1.1/v1.2 y con el manifiesto de diseño. No se incorporaron ni eliminaron archivos ajenos. Único archivo de repositorio modificado por Codex: **docs/orchestration/issue-3-audit.md**, anexando este v1.3 sin borrar evidencia anterior.
+
+### 4. Límites y entrega
+
+La aceptación se limita al contrato conversacional aprobado y a evidencia lógica/transaccional en una instancia con conexión SQLite única. No se promete comprensión de español libre, deduplicación durable de eventos de transporte, orden de STT concurrentes, entrega durable de SSE, disponibilidad de proveedores externos, limpieza física de medios ni durabilidad absoluta ante corte eléctrico. Estos límites ya pertenecen al diseño; no se introduce deuda nueva ni se exige trabajo de issues posteriores.
+
+**PASS final de conformidad de #3 sobre cdabcae, con reporte f5de345.** No quedan pendientes R1/R2 ni F1–F7 para este alcance. No se ejecutaron nuevos builds/probes por rutina ni se modificó implementación desde la auditoría; no hubo push ni cierre de issue. Entrega lista para decisión final de Orca.
