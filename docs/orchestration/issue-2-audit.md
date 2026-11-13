@@ -284,3 +284,145 @@ Criterio de Aceptación (Definition of Done): Los dos probes del addendum deben 
 ```
 
 **Conclusión de reauditoría v1.1: FAIL sobre 37da5c2.** F2/F3/F4/F6 muestran correcciones sustanciales, y R1/R5/R7/P3 y el smoke básico mejoraron; F1, F5 y F7 todavía impiden cerrar #2. La tarea de reauditoría finaliza con este dictamen, sin autorizar avance a #3 ni aprobación de construcción adicional por fuera de Orca.
+
+
+---
+
+## Addendum de auditoría final v1.2 — 2026-11-12
+
+**Dictamen: FAIL sobre 123d23a766afee27b7ebf8f5c0bbd45113ff7ec9.** Diseño aprobado: v1.0, sin ampliación de alcance. Auditor Codex; tarea task_968492c17ed2; dispatch ctx_ffdd7323bbc9. Se conservaron íntegros el informe v1.0 y addendum v1.1. Esta entrega **sí repara los contraejemplos exactos C1–C3**, pero introduce una regresión reproducida de reinicio con identificadores de sesión válidos (C4) y no completa toda la evidencia exigida. No se modifica implementación ni se autoriza cierre/avance a #3.
+
+### 1. Evidencia final contrastada
+
+Leídos AGENTS.md, diseño v1.0 y aprobación, auditoría completa con addendum v1.1, orden de segundo retrabajo, `git show 123d23a` y sus cuatro archivos, suites completas afectadas, reporte final y evidencias temporales. `git diff 123d23a^ 123d23a --check` finalizó exit0. Solo se modificaron archivos permitidos en el commit: inicializador, CatalogMigrationTest, CatalogRepositoryTest y docs/decisiones.md.
+
+Comparación byte por byte de todos los archivos versionados de 123d23a contra /tmp/norma-export mediante git ls-tree/git show: **cero diferencias**. La exportación no incluye IntentFallback.java ni ApiTest.java ajenos. SHA-256 del JAR final actual: **f99b483f69fe8051d0f7d5bd36fcb3020aee691615802704c6108522b1a605c1**; coincide con el reporte de entrega final. Las clases/dependencias usadas por los probes se extrajeron de ese JAR, no de target del workspace.
+
+**La brecha anterior del log verify queda resuelta:** /tmp/clean_verify_full.log y /tmp/norma_final_delivery_report.txt muestran compilación release25, clean en /tmp/norma-export/target, ejecución de las cuatro suites, empaquetado/repackage y **BUILD SUCCESS**, finalizado a las **22:59:09 -03:00**. Los XML de /tmp/norma-export/target/surefire-reports contienen basedir=/tmp/norma-export, java.version=25.0.5.0.3 y:
+
+| Suite | Tests | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| CatalogRepositoryTest | 7 | 0 | 0 | 0 |
+| CatalogPersistenceTest | 3 | 0 | 0 | 0 |
+| CatalogMigrationTest | 3 | 0 | 0 | 0 |
+| FlowTest | 4 | 0 | 0 | 0 |
+| Total | **17** | **0** | **0** | **0** |
+
+El comando de entrega declarado es `mvn verify` con Java25 sobre exportación limpia; el log incluye clean y todas las fases anteriores. El auditor **no repitió Maven**, pues ya existe evidencia de build y el defecto de arranque se comprueba sin recompilar. No usar /tmp/norma-verify-b2.log como log de exportación: sus rutas corresponden al workspace. Tampoco los logs de las 17:19 ni los de #1.
+
+### 2. C1–C3 reejecutados: reparaciones comprobadas
+
+Se ejecutó un harness dirigido usando clases del **JAR final f99b...** y el TestFailingDataSource compilado de la exportación, exclusivamente sobre nuevos fixtures temporales. Se compararon inventario SQL completo, filas completas de sessions/products, sqlite_sequence y user_version antes/después en cada rechazo/rollback, no identidad binaria del archivo (WAL puede variar).
+
+- **C1 cerrado para el contraejemplo exacto:** trigger homónimo con `'default'` en vez de `'DEFAULT'` se rechaza por diferencia de definición; inventario/datos/sequence/versión permanecen lógicamente iguales. El literal conserva su caso en la comparación.
+- **C2 cerrado para el contraejemplo exacto:** fixture con metadatos/FK/UNIQUE y seis guardas válidas, DEFAULT exacto, pero sin CHECK de products/next_number se rechaza por DDL no canónico; preservación lógica completa=true. La validación ahora comprueba DDL íntegro, defaults/nullability, índice no parcial y probes con padre válido y causa CHECK. C4, abajo, es una regresión de esos nuevos probes positivos, no la persistencia del antiguo bypass FK.
+- **C3 cerrado:** el wrapper desenvuelve InvocationTargetException y la inyección **sí alcanza PRAGMA quick_check**; causa real “Injected test failure on: PRAGMA quick_check”, flag=true y FK=1 capturada en la conexión fallida antes de cerrar. Snapshot lógico completo coincide antes/después del rollback, incluyendo borrador/snapshot no nulos del fixture; el siguiente arranque sin inyección migra a user_version=2. Ya no falla por un error incidental de reflexión.
+
+No se reabren estos tres contraejemplos como si no hubieran sido atendidos. Sus tests nuevos y los probes de auditoría respaldan la reparación.
+
+### 3. C4 — Alta: una sesión pública válida impide el siguiente arranque
+
+**Ubicación:** CatalogDatabaseInitializer.java:590–610, especialmente INSERT del control positivo en línea596. El inicializador escribe siempre `valid_sess_check_1` en sessions dentro del savepoint. Ese identificador es válido según Catalog.valid y no está reservado por contrato. Si una sesión real ya lo tiene, el control positivo falla por PK y el inicializador aborta, aunque tablas, datos y DEFAULT sean completamente válidos. Los nombres fijos valid_sess_check_2/3/4 también pueden producir colisiones en los probes negativos y provocar rechazo por motivo ajeno a CHECK.
+
+**Reproducción comprobada contra JAR final:**
+
+1. Inicializar archivo nuevo normalmente (v2 canónica).
+2. Comprobar `Catalog.valid("valid_sess_check_1")`: devuelve el identificador sin error.
+3. Preparar la sesión legítima exactamente como ensure: INSERT sessions(id) y clonación SQL de las ocho piezas desde DEFAULT. No alterar esquema, seed, guardas ni contador.
+4. Volver a ejecutar initialize sobre ese archivo: falla con **SQLITE_CONSTRAINT_PRIMARYKEY / UNIQUE constraint failed: sessions.id**. Todos los datos/versión permanecen iguales, pero el servicio no puede iniciar.
+
+El mismo estado puede producirse mediante GET /api/products?sessionId=valid_sess_check_1, pues la API admite el identificador y llama ensure. No se usó la API del usuario para provocar el caso; solo fixture aislado. El defecto afecta la garantía de reinicio de datos válidos y potencialmente la migración de una sesión legacy homónima.
+
+**Retrabajo exacto:** los probes de inicialización deben usar identificadores válidos nuevos cuya ausencia se garantice sin tocar sesiones existentes, o una estrategia equivalente aislada que no colisione con datos de usuario. No “resolver” prohibiendo esos ids en Catalog.valid ni borrando/reutilizando filas: eso cambia el contrato aprobado y puede perder datos. Mantener el control positivo, el rechazo por CHECK y rollback de probes. Agregar regresión para cada uno de los cuatro ids fijos ya existentes y sesiones con contenido/contador/JSON, incluyendo un catálogo vacío, en arranque v2 y upgrade legacy. Inicializar repetidamente debe funcionar y preservar íntegros todos los datos, sin dejar filas de prueba ni consumir sequence.
+
+### 4. Smoke de procesos: lo acreditado y lo pendiente
+
+Se revisaron **/tmp/smoke_evidence_b2.txt**, **/tmp/run_smoke.sh**, **/tmp/norma_proc1.log**, **/tmp/norma_proc2.log**, /tmp/resp_default.json, /tmp/resp_mutated_init.json, /tmp/resp_empty_init.json y /tmp/reset_resp.json. Los logs prueban procesos Java25 **103393** y **103513** con cierre graceful de Tomcat/Hikari. El reporte muestra disponibilidad de la sesión mutada **8→7→7**, sesión vacía **8→0→0**, rechazo DEFAULT400 y reset **7→8** con pieza1 repuesta. Esta evidencia **sí supera** el smoke básico anterior y acredita los resultados observados de venta/vacío a través de dos procesos.
+
+Se atendió la precisión de la tarea: además del reporte se buscó evidencia de metadata en logs/scripts/resultados de /tmp y se abrió **solo en lectura** la base fixture /tmp/norma_smoke.db. Estado final observado:
+
+```text
+smoke_empty_02   IDLE  pending=NULL temp_image=NULL snapshot=NULL next_number=9
+smoke_mutated_01 IDLE  pending=NULL temp_image=NULL snapshot=NULL next_number=9
+```
+
+Los null finales en la sesión mutada serían normales después de reset; **no prueban pérdida de metadata**. El problema de evidencia es que run_smoke.sh **nunca prepara pending/temp_image/snapshot no nulos ni cambia next_number**, ni captura una comparación DB antes/después del reinicio. P1 sí verifica metadata no nula entre contextos, y C3 la preserva en rollback; ninguno equivale a ese subcaso del smoke de procesos solicitado expresamente en el segundo retrabajo.
+
+Otros límites concretos de ese harness:
+
+- Escribe sold y borra productos mediante Python **mientras el primer proceso sigue vivo**; la orden exigía preparar el fixture con el proceso parado. Mover esa preparación a después del primer cierre y antes del segundo arranque permite un snapshot consistente y respeta el contrato de una instancia/escritor activo.
+- Usa `--norma.upload.dir` en vez de la propiedad efectiva **norma.uploads**; no acredita aislamiento de uploads mediante ese argumento. Repetir con la propiedad correcta y directorio temporal.
+- El hash de smoke registrado es **c8c1c64c513ef56ebca4ef19e48a128196eade450db3a128d8e422d064bcbd3c**, anterior al clean/repackage del JAR final **f99b...**. Puede deberse al reempaquetado, no demuestra por sí mismo código distinto; no hay comparación conservada de clases/recursos entre esos dos artefactos. Repetir sobre el JAR final cuyo hash se entrega, o aportar comparación verificable de su contenido relevante.
+- El script imprime “PASSED” sin aserciones de igualdad para varios conteos y hace `wait ... || true`, sin registrar exit codes. Los valores observados son correctos para los escenarios ejecutados, pero conviene convertir expectativas en aserciones y registrar HTTP/status/body, comando, hash y salidas de ambos procesos para entrega reproducible.
+
+**Retrabajo de evidencia, sin funcionalidad nueva:** tras corregir C4 y empaquetar/exportar, smoke final con ruta/puerto temporales, hash de JAR fijo, preparación de sesión mutada/otra vacía con proceso detenido y contador>9, estado/borrador/foto/snapshot no nulos válidos en al menos una sesión, snapshot DB previo y posterior antes del reset, HTTP de ambas sesiones/DEFAULT y reset, limpieza metadata comprobada después de reset y contador conservado. Registrar comandos y exit codes reales; no ejecutar proveedores externos ni tocar BotEngine.
+
+### 5. Matriz F1–F7 actualizada
+
+| Hallazgo | Estado v1.2 | Evidencia y límite |
+|---|---|---|
+| F1 | **Contraejemplos cerrados; regresión C4 abierta** | C1/C2 rechazan y preservan esquema/datos/version; DDL/guardas más estrictos. Nuevo uso de ids fijos rompe arranque de estado válido |
+| F2 | **Corregido en mecanismo** | Reconocimiento legacy exacto y rechazo de trigger/índice/view; tests de índice/view añadidos, faltan variantes de DDL y comparación de preservación completa anunciadas |
+| F3 | **Corregido en mecanismo** | Sequence histórica conservada y segundo arranque comparado. Comentario anuncia sin productos/con DEFAULT, pero fixture adicional solo cubre id5 vivo tras borrar id1000; variantes prometidas no están implementadas |
+| F4 | **Corregido en mecanismo** | typeof/long/rango y tests REAL1.5/texto/negativo/out-of-range. Persisten faltantes de assertions del valor original; null requiere considerar NOT NULL del legacy en vez de afirmar cobertura inexistente |
+| F5 | **C3 cerrado; cobertura integral aún parcial** | Flag/cause inyectado y FK misma conexión demostrados; R6 mejora reset y metadata. Aserciones completas de restore/rollback y M3 aún no están todas en tests versionados |
+| F6 | **PASS** | PRAGMA leídos, FK finally y renovación física con raw1 != raw2 y checks repetidos en P3 permanecen intactos |
+| F7 | **Parcial** | D11 ya elimina garantías absolutas y se dispone de clean verify exitoso; P2 procesos mutado/vacío demostrado parcialmente, metadata/hashes/fixture parado aún pendientes |
+
+### 6. Matriz R/P/M/G y no regresión
+
+No se exige agregar otro framework o ampliar FSM. FAIL de evidencia indica subcaso aprobado sin demostrar, no afirma que el dato se pierda en producción.
+
+| Criterio | Dictamen actual | Evidencia/punto exacto pendiente |
+|---|---|---|
+| R1 | PASS | Clones completos y PRICE/IMAGE/SOLD/CREATE aislados; B y DEFAULT conservados |
+| R2 | PASS repositorio | ensure de sesión vacía/toda vendida, no reseed y reset explícito; smoke también acredita catálogo vacío tras proceso |
+| R3 | PASS | Numeración monótona a través de venta/restore/reset y sesión nueva; sin cambios al algoritmo |
+| R4 | PASS reglas principales; parcial igualdad íntegra | Agregó duplicado, negativo y no numérico SQL, targeting y agotamiento. sessBeforeErrors se captura pero no se compara; la lista tras errores compara solo parte de Product y agotamiento solo cantidad/contador. Exigir igualdad de todos los datos relevantes antes/después, no afirmar “full state” todavía |
+| R5 | PASS | IDs inválidos/null en todos los métodos, seis guardas y traslado a DEFAULT con número libre999 y causa del trigger, seed completa sin cambios |
+| R6 | PARCIAL | Fallos ensure/reset/restore reales; reset ahora compara número/título/precio/foto/sold y toda metadata, y reset exitoso limpia campos. restore aún compara número/título/precio, omite id/sessionId/foto/sold; usar igualdad de records/listas y Session para todos los fallos, desde transacción independiente |
+| R7 | PASS | ensure y cinco altas concurrentes, unicidad/next14/B aislada y cierre executors |
+| P1 | PASS comportamiento principal; C4 bloquea garantía universal | Metadata no nula y cambios persistidos entre contextos en archivo; no cubre colisión de ids de validación |
+| P2 | PARCIAL / FAIL aceptación completa | Dos procesos y venta/vacío acreditados; metadata/contador/harness/hash final pendientes en §4; caso válido C4 impide reinicio |
+| P3 | PASS | Valores PRAGMA y FK en nueva conexión física, sin reejecutar inicializador |
+| M1 | PARCIAL | IDs vivos/campos/JSON/vacío normalizados comprobados; segundo arranque del fixture solo compara versión/cantidad DEFAULT, no contenido completo de usuarios |
+| M2 | PASS contraejemplos principales; cobertura aislada parcial | Guardas minúsculas, WHEN0, seed alterada con trigger exacto y DDL inválido rechazados. Test sin CHECK carga títulos P1..P8 no canónicos, pese al comentario “semilla canónica”; DDL se comprueba primero y el probe de auditoría con seed exacta sí demuestra C2. Añadir variantes de un solo CHECK/default/FK/índice con causa y preservación para aislar cada rechazo |
+| M3 | PASS rollback dirigido auditor; tests integrales parciales | C3 comprobado con snapshot lógico completo del auditor. Test versionado compara parte del catálogo/tabla y versión, no inventario/datos/JSON/sequence completos. Índice/view extra solo assertThrows; variantes state/id/tipos/PK/defaults incompatibles sin fixture completo. Agregar assertions sin cambiar arquitectura |
+| G1 | PASS ejecución | clean verify BUILD SUCCESS y 17/17 Java25 en exportación idéntica, FlowTest intacto; no contar ApiTest del workspace |
+| Alcance/workspace | PASS | Commit de cuatro archivos autorizados; solo documento de auditoría modificado por auditor, archivos ajenos preservados |
+
+Las pendientes de cobertura anteriores ya estaban expresamente en v1.1 y la orden de retrabajo. No se exige multiplicar métodos JUnit: pueden agruparse con assertions de comportamiento y causa, sin confundir cantidad17 con cumplimiento exhaustivo. **Aunque se aceptaran las limitaciones de evidencia, C4 por sí solo exige FAIL.**
+
+### 7. Probes ejecutados, trazabilidad y conservación
+
+Lagunas concretas que justificaron el harness: verificar cierre C1/C2 con preservación, comprobar punto real C3 y confirmar colisión de ids nuevos de validación. Ningún build ni Maven ejecutado por el auditor. Fixtures y harness nuevos únicamente en **/tmp/norma-issue2-finalaudit-y3jph9te**; datos del usuario sin cambios. La base smoke solo se abrió con URI SQLite mode=ro para resolver la precisión sobre metadata.
+
+```sh
+/tmp/norma-jdk/bin/java --enable-native-access=ALL-UNNAMED --class-path '/tmp/norma-issue2-finalaudit-y3jph9te/classes:/tmp/norma-issue2-finalaudit-y3jph9te/lib/*:/tmp/norma-export/target/test-classes' /tmp/norma-issue2-finalaudit-y3jph9te/FinalAuditProbe.java
+```
+
+Exit0: el harness reporta contraejemplos y no constituye una suite aceptada. Log completo: /tmp/norma-issue2-finalaudit-y3jph9te/probe.log. Resultados relevantes conservados aquí:
+
+```text
+C1 REJECT trigger alterado; logical_preserved=true
+C2 REJECT DDL sin CHECK; logical_preserved=true
+C4 public_valid_id=valid_sess_check_1
+C4 legitimate_session_restart REJECT SQLITE_CONSTRAINT_PRIMARYKEY / UNIQUE constraint failed: sessions.id; logical_preserved=true
+C3 cause=Injected test failure on: PRAGMA quick_check; logical_preserved=true
+C3 isFailReached=true
+C3 getFkOnFailingConnection=1
+C3 recovery_version=2
+```
+
+Se compararon fingerprints SHA-256 de BotEngine.java, IntentFallback.java, ApiTest.java y AGENTS.md antes/después: idénticos. Se preservó íntegro el prefijo del informe anterior y solo se añadió este addendum. El único archivo modificado/versionado por esta auditoría es docs/orchestration/issue-2-audit.md; no hubo push/cierre ni modificación de implementación.
+
+### 8. Pedido restante para Orca y Antigravity
+
+```text
+[@Agente Destino]: Antigravity
+Objetivo de la tarea: Resolver la regresión de reinicio C4 y completar las assertions/evidencia pendientes de v1.2 sobre 123d23a, sin cambiar diseño ni contratos.
+Contexto / Inputs: Diseño v1.0 aprobado, audit completo v1.0/v1.1/v1.2 y orden previa; archivos permitidos de §7 y trabajo ajeno intacto. Primero eliminar colisiones de probes con sesiones válidas y añadir regresión para los cuatro ids y legacy/v2, conservando controles y rollback; gate Orca. Luego completar igualdad íntegra R4/R6/M1/M3, variantes aisladas M2/F2-F4 ya solicitadas y smoke final del §4 con metadata/contador no triviales, fixture preparado con proceso parado y hash del JAR entregado; gate Orca. No tocar FSM/API/POM ni hacer push/cierre.
+Criterio de Aceptación (Definition of Done): Arranque repetido sobre cualquier sesión válida de esos fixtures funciona sin tocar su contenido/contador/JSON/sequence; C1/C2 siguen rechazando sin reparación y C3 falla en la inyección correcta con FK restaurada. Exportación idéntica al nuevo commit, clean verify completo Java25 sin omisiones, smoke final de dos procesos con snapshots before/after completos y HTTP/status/body/exit codes, hashes y logs concordantes. Solicitar nueva auditoría Codex; no declarar #2 completa por total17/17.
+```
+
+**Conclusión final de esta auditoría v1.2: FAIL sobre 123d23a.** Se reconocen reparaciones C1–C3 y build reproducible; queda un defecto concreto de reinicio (C4) y brechas acotadas de evidencia. Issue #2 permanece abierta hasta corrección y aceptación de Orca/Codex.
