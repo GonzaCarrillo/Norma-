@@ -4,6 +4,10 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -27,9 +32,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 class MediaHttpTest {
+
+    @LocalServerPort
+    private int port;
+
+    @Autowired
+    private Catalog catalog;
+
+    @Autowired
+    private BotEngine botEngine;
 
     @TempDir
     static Path sharedTempDir;
@@ -578,8 +592,242 @@ class MediaHttpTest {
     }
 
     // ==========================================
+    // L2: Multipart límite con servidor real en RANDOM_PORT devuelve 413
+    // ==========================================
+
+    @Test
+    void testL2_MultipartPartExceeds15MB_ReturnsReal413_PayloadTooLarge() throws Exception {
+        // Generar un payload multipart que exceda los 15 MiB (15.5 MiB)
+        int partSize = (int) (15.5 * 1024 * 1024);
+        byte[] largeFileBytes = new byte[partSize];
+        Arrays.fill(largeFileBytes, (byte) 0xAA);
+
+        HttpResponse<String> response = sendMultipartOverHttp(
+                "/api/bot/message",
+                Map.of("sessionId", "session-l2"),
+                "image", "large.jpg", "image/jpeg",
+                largeFileBytes
+        );
+
+        assertEquals(413, response.statusCode());
+        assertTrue(response.body().contains("El archivo es demasiado grande. Probá con uno más chico."));
+
+        // Verificar que no se alteró la sesión ni se crearon archivos residuales
+        assertEquals(0, countFiles(testUploadsRoot.resolve(".processing")));
+        assertEquals(0, countFilesExcludingProcessing(testUploadsRoot));
+    }
+
+    // ==========================================
+    // A1 / A2: Integración de imagen real con FSM BotEngine y aislamiento
+    // ==========================================
+
+    @Test
+    void testA1_FullLifecycle_RealImage_BotEngine_Confirmation_Undo() throws Exception {
+        String sessionId = "session-a1-integration";
+        catalog.ensure(sessionId);
+        assertEquals(8, catalog.all(sessionId).size());
+
+        byte[] realJpeg = createTestImageBytes("JPEG", 800, 600, Color.MAGENTA);
+        MockMultipartFile imageFile = new MockMultipartFile("image", "jarron.jpg", "image/jpeg", realJpeg);
+
+        // 1. Envío de foto sola -> transición a AWAITING_DETAILS
+        mockMvc.perform(multipart("/api/bot/message")
+                        .file(imageFile)
+                        .param("sessionId", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("AWAITING_DETAILS"));
+
+        // Catálogo sigue con 8 piezas
+        assertEquals(8, catalog.all(sessionId).size());
+
+        // 2. Envío de texto con precio y título -> transición a AWAITING_CONFIRMATION
+        mockMvc.perform(multipart("/api/bot/message")
+                        .param("sessionId", sessionId)
+                        .param("text", "Jarrón nuevo a veinticinco mil pesos"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("AWAITING_CONFIRMATION"));
+
+        assertEquals(8, catalog.all(sessionId).size());
+
+        // 3. Confirmación "Sí" -> IDLE, pieza #9 creada con imagen WebP real
+        mockMvc.perform(multipart("/api/bot/message")
+                        .param("sessionId", sessionId)
+                        .param("text", "Sí"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("IDLE"));
+
+        var products = catalog.all(sessionId);
+        assertEquals(9, products.size());
+        var newPiece = products.get(8);
+        assertEquals(25000, newPiece.price());
+        assertTrue(newPiece.imageUrl().startsWith("/media/"));
+        assertTrue(newPiece.imageUrl().endsWith(".webp"));
+
+        // El archivo publicado existe físicamente en uploads y es un WebP válido
+        Path published = testUploadsRoot.resolve(newPiece.imageUrl().substring("/media/".length()));
+        assertTrue(Files.exists(published));
+        assertTrue(Files.size(published) < 80000);
+
+        // 4. Actualizar foto de pieza 2: "Esta foto es para cambiar la de la pieza 2" + nueva imagen real
+        byte[] newJpeg = createTestImageBytes("JPEG", 400, 300, Color.CYAN);
+        MockMultipartFile newImageFile = new MockMultipartFile("image", "plato.jpg", "image/jpeg", newJpeg);
+
+        mockMvc.perform(multipart("/api/bot/message")
+                        .file(newImageFile)
+                        .param("sessionId", sessionId)
+                        .param("text", "Esta foto es para cambiar la de la pieza 2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("AWAITING_CONFIRMATION"));
+
+        // 5. Confirmar actualización -> IDLE
+        mockMvc.perform(multipart("/api/bot/message")
+                        .param("sessionId", sessionId)
+                        .param("text", "Sí"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("IDLE"));
+
+        var piece2 = catalog.all(sessionId).get(1);
+        String piece2NewUrl = piece2.imageUrl();
+        assertTrue(piece2NewUrl.startsWith("/media/"));
+
+        // 6. Undo: "Me equivoqué" revierte la imagen de la pieza 2 a la original
+        mockMvc.perform(multipart("/api/bot/message")
+                        .param("sessionId", sessionId)
+                        .param("text", "Me equivoqué"))
+                .andExpect(status().isOk());
+
+        var piece2Reverted = catalog.all(sessionId).get(1);
+        assertEquals("/assets/pieza-2.webp", piece2Reverted.imageUrl());
+
+        // La URL anterior sigue accesible en /media/ (estabilidad referencial)
+        mockMvc.perform(get(piece2NewUrl))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testA2_InvalidMediaAndSimultaneousTextAudio_PreservesSessionAndProduct() throws Exception {
+        String sessionId = "session-a2-isolation";
+        catalog.ensure(sessionId);
+        var initialProducts = catalog.all(sessionId);
+
+        // 1. Texto y audio simultáneos -> rechazado con 400 antes de procesar imagen
+        MockMultipartFile dummyAudio = new MockMultipartFile("audio", "nota.mp3", "audio/mpeg", new byte[]{1, 2, 3});
+        mockMvc.perform(multipart("/api/bot/message")
+                        .file(dummyAudio)
+                        .param("sessionId", sessionId)
+                        .param("text", "Texto descriptivo"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Mandame el texto o el audio con los detalles, uno por vez."));
+
+        assertEquals(initialProducts, catalog.all(sessionId));
+
+        // 2. Imagen inválida (corrupta) en DETAILS -> 400, estado y catálogo preservados
+        MockMultipartFile corruptFile = new MockMultipartFile("image", "corrupt.jpg", "image/jpeg", new byte[]{0, 1, 2, 3});
+        mockMvc.perform(multipart("/api/bot/message")
+                        .file(corruptFile)
+                        .param("sessionId", sessionId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG."));
+
+        assertEquals(initialProducts, catalog.all(sessionId));
+        assertEquals(0, countFiles(testUploadsRoot.resolve(".processing")));
+    }
+
+    // ==========================================
+    // F1: Cobertura explícita de sistema de archivos (Atomic Move no soportado y Symlinks)
+    // ==========================================
+
+    @Test
+    void testF1_AtomicMoveUnsupported_ThrowsIOException_CleanedAndReleased() throws Exception {
+        Path isolatedRoot = sharedTempDir.resolve("f1-atomic-unsupported");
+        Files.createDirectories(isolatedRoot);
+
+        byte[] validWebp = createTestImageBytes("webp", 800, 600, Color.BLACK);
+        PhotoProcessor.WebPEncoder encoder = (img, q, dest) -> Files.write(dest, validWebp);
+
+        PhotoProcessor.FileMover unsupportedMover = (src, dst) -> {
+            throw new AtomicMoveNotSupportedException(src.toString(), dst.toString(), "Simulación de volumen sin soporte de ATOMIC_MOVE");
+        };
+
+        PhotoProcessor p = new PhotoProcessor(isolatedRoot, encoder, unsupportedMover);
+        byte[] input = createTestImageBytes("JPEG", 400, 300, Color.BLUE);
+
+        IOException ex = assertThrows(IOException.class,
+                () -> p.process(new MockMultipartFile("image", "test.jpg", "image/jpeg", input)));
+        assertTrue(ex.getMessage().contains("movimiento atómico"));
+
+        // Verificar que no quedó ningún archivo en uploads ni en staging y que el semáforo quedó libre
+        assertEquals(0, countFilesExcludingProcessing(isolatedRoot));
+        assertEquals(0, countFiles(isolatedRoot.resolve(".processing")));
+
+        PhotoProcessor normal = new PhotoProcessor(isolatedRoot);
+        String url = normal.process(new MockMultipartFile("image", "ok.jpg", "image/jpeg", input));
+        assertNotNull(url);
+    }
+
+    @Test
+    void testF1_SymlinkTraversalBlocked_Returns404() throws Exception {
+        // Crear un archivo objetivo fuera de uploads
+        Path outsideFile = sharedTempDir.resolve("outside-secret.txt");
+        Files.writeString(outsideFile, "SECRET_DATA");
+
+        // Crear un symlink dentro de testUploadsRoot apuntando fuera
+        Path symlink = testUploadsRoot.resolve("symlink-target.webp");
+        try {
+            Files.createSymbolicLink(symlink, outsideFile);
+        } catch (UnsupportedOperationException | IOException e) {
+            // Si el SO/entorno no permite symlinks, omitir gracefully
+            return;
+        }
+
+        try {
+            mockMvc.perform(get("/media/symlink-target.webp"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("No encontré ese archivo."));
+        } finally {
+            Files.deleteIfExists(symlink);
+            Files.deleteIfExists(outsideFile);
+        }
+    }
+
+    // ==========================================
     // Helpers
     // ==========================================
+
+    private HttpResponse<String> sendMultipartOverHttp(
+            String path,
+            Map<String, String> params,
+            String partName,
+            String fileName,
+            String contentType,
+            byte[] fileBytes
+    ) throws Exception {
+        String boundary = "----NormaBoundary" + System.currentTimeMillis();
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(("Content-Disposition: form-data; name=\"" + entry.getKey() + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+            body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        }
+
+        body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Disposition: form-data; name=\"" + partName + "\"; filename=\"" + fileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(fileBytes);
+        body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + path))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .build();
+
+        return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
 
     private byte[] makePaddedWebp(byte[] baseWebp, int targetSize) throws IOException {
         int currentLen = baseWebp.length;

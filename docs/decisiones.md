@@ -80,11 +80,51 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 
 ---
 
+## Decisiones Aprobadas — Issue #4 (Diseño Codex v1.0 / Aprobación Orca)
+
+### D12 — Allowlist de formatos estáticos y rechazo de contenedores inseguros
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: Exposición a vulnerabilidades por formatos políglotas, animaciones no deseadas (denegación de servicio por frames infinitos) y metadatos EXIF excesivos o maliciosos.
+- **Decisión**: Allowlist estricta para JPEG/JPG, PNG8 y WebP estático. Se prohíben y rechazan con HTTP 400 WebP animados (chunks `ANIM`/`ANMF` o flag `animation` en cabecera `VP8X`), perfiles de color ICC incrustados y bloques EXIF mayores a 262.144 bytes o corruptos. La extracción de orientación EXIF (tags 1..8) se limita al bloque IFD0 mediante `metadata-extractor:2.19.0`.
+- **Consecuencias**: Superficie de ataque reducida y rechazo seguro en el borde de entrada antes de instanciar rasters no confiables.
+
+### D13 — Normalización geométrica determinista y revelado consistente
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: Las fotos de los usuarios pueden provenir de múltiples cámaras con distintas relaciones de aspecto, orientaciones EXIF y canales alfa.
+- **Decisión**: Se aplica un recorte centrado con relación 4:3 determinista con factor $k = \min(\lfloor W_o/4 \rfloor, \lfloor H_o/3 \rfloor)$ (rechazo si $k=0$), seguido de redimensionamiento proporcional a 800x600 px y rotación estricta según el tag EXIF 1..8. El raster se compone sobre fondo blanco sólido `#FFFFFF` para neutralizar transparencia y se aplica corrección tonal sRGB8 determinista ($R'=1.0403 \times R, G'=1.03 \times G, B'=1.0197 \times B$).
+- **Consecuencias**: Catálogo visual homogéneo con relación 4:3 en 800x600 px y colores calibrados sin artefactos de transparencia.
+
+### D14 — Bucle de codificación con pérdida en 8 intentos y límite estricto de 80.000 bytes
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: Se requiere garantizar que ninguna imagen publicada sobrepase el presupuesto de red móvil para Norma (< 80 KB) sin reducir la resolución prefijada de 800x600 px.
+- **Decisión**: Se ejecuta un bucle de compresión con pérdida explícita sobre el raster revelado utilizando las calidades `[80, 70, 60, 50, 40, 30, 20, 10]`. Se acepta el primer candidato cuyo tamaño cumpla $0 < \text{bytes} < 80.000$ (en la práctica, el tamaño máximo admisible es 79.998 bytes debido a la alineación RIFF par). Si tras el intento con calidad 10 el tamaño aún iguala o supera 80.000 bytes, se rechaza la imagen con HTTP 400 sin degradar la resolución geométrica.
+- **Consecuencias**: Garantía criptográfica y binaria del cumplimiento de cuota de ancho de banda sin sorpresas visuales por resoluciones degradadas.
+
+### D15 — Ranura única de procesamiento fotográfico y control de memoria
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: La decodificación y transformación de imágenes de hasta 24 MP (p. ej. 6000x4000 px) requiere entre 65 y 100 MB de memoria de trabajo transitoria por imagen. En un servidor con recursos limitados, múltiples peticiones simultáneas podrían causar agotamiento de memoria (OOM).
+- **Decisión**: Se implementa un semáforo de un único permiso (`Semaphore(1)`) que controla la sección crítica del procesador. Cualquier petición concurrente adicional es rechazada inmediatamente con HTTP 500 ("Servidor ocupado procesando otra imagen.") sin retener buffers ni encolar tareas.
+- **Consecuencias**: Cero riesgo de saturación de heap o contención descontrolada de memoria bajo ráfagas concurrentes.
+
+### D16 — Aislamiento en staging, publicación atómica y serving seguro con fail-safe 404
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: Prevenir condiciones de carrera, archivos parcialmente escritos visibles públicamente y ataques de path traversal hacia el sistema de archivos del host.
+- **Decisión**: Los archivos temporales se alojan en `<norma.uploads>/.processing/` con nombres opacos. Una vez validado el candidato, se publica atómicamente a la raíz de uploads mediante `Files.move(..., ATOMIC_MOVE)` con un UUID v4. El endpoint `/media/**` bloquea accesos con `..`, nombres ocultos, symlinks fuera de uploads y peticiones a `.processing/`, respondiendo siempre HTTP 404 genérico sin fugar rutas internas.
+- **Consecuencias**: Consistencia atómica en el sistema de archivos y aislamiento contra vulnerabilidades de divulgación de datos.
+
+### D17 — Procedencia honesta de recursos de demostración y límites de UI
+- **Estado**: Aprobado e implementado en Issue #4.
+- **Contexto**: Transparencia y cumplimiento de autoría en las imágenes de demostración iniciales y comportamiento de la interfaz web.
+- **Decisión**: Se utilizan 8 encuadres WebP derivados de 4 fotografías humanas de Unsplash (sin IA). Se documenta explícitamente en `docs/medios.md` el inventario con hashes SHA-256 de las 8 imágenes y 4 audios MP3. En la interfaz web (`app.js`), los botones de demostración reproducen el MP3 correspondiente pero envían texto predefinido, documentándose con total honestidad sin pretender simular integración con STT en caliente durante el modo demo.
+- **Consecuencias**: Integridad profesional y trazabilidad auditada de los recursos estáticos.
+
+---
+
 ## Decisiones y Estado de Fases Posteriores
 
-- **Persistencia y Catálogo (Issue #2)**: Esquema relacional v2, inmutabilidad de DEFAULT, aislamiento transaccional, snapshots y migración fail-closed implementados y cubiertos por suites de pruebas R1–R7, P1–P3 y M1–M3. *Estado: Implementado y verificado por Antigravity; pendiente de reauditoría de conformidad por Codex y aprobación final de Orca.*
-- **FSM y Conversación (Issue #3)**: Máquina de estados conversacional, consumo de borradores en confirmación y resolución de referencias. *Estado: Pendiente de Issue #3.*
-- **Medios y Formatos de Imagen (Issue #4)**: Procesamiento de WebP mediante Thumbnailator y proveedor ImageIO. *Estado: Pendiente de Issue #4.*
+- **Persistencia y Catálogo (Issue #2)**: Esquema relacional v2, inmutabilidad de DEFAULT, aislamiento transaccional, snapshots y migración fail-closed implementados y cubiertos por suites de pruebas R1–R7, P1–P3 y M1–M3. *Estado: Implementado y verificado por Antigravity; conforme en auditoría técnica.*
+- **FSM y Conversación (Issue #3)**: Máquina de estados conversacional, consumo de borradores en confirmación y resolución de referencias. *Estado: Implementado y verificado.*
+- **Medios y Formatos de Imagen (Issue #4)**: Procesamiento de WebP, validación de formatos, límites de 15 MiB / 24 MP / 16384 px, normalización 4:3 a 800x600 px, codificación con pérdida < 80.000 bytes, ranura única de concurrencia, almacenamiento atómico y serving seguro. *Estado: Implementado y verificado por Antigravity (B1–B3 completados, 45 pruebas dedicadas y 175 pruebas totales en verde); listo para auditoría independiente OpenCode y revisión final Codex.*
 - **Audio, STT y TTS (Issue #5)**: Integración con Groq Whisper, síntesis Edge TTS y parametrización de modelos/voces. *Estado: Pendiente de Issue #5.*
 - **SSE e Interfaz Web (Issue #6)**: Streaming de eventos SSE para catálogo y UI accesible. *Estado: Pendiente de Issue #6.*
 - **Simulador de Norma sin credenciales (Issue #7)**: Simulador conversacional y vidriera accesible sin credenciales. *Estado: Pendiente de Issue #7.*

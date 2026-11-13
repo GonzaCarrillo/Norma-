@@ -35,20 +35,31 @@ class PhotoProcessor {
     private final Path stagingDir;
     private final Semaphore semaphore = new Semaphore(1);
     private final WebPEncoder encoder;
+    private final FileMover mover;
 
     @FunctionalInterface
     interface WebPEncoder {
         void encode(BufferedImage img, float quality, Path dest) throws IOException;
     }
 
+    @FunctionalInterface
+    interface FileMover {
+        void move(Path source, Path target) throws IOException;
+    }
+
     PhotoProcessor(Path root) {
-        this(root, new DefaultWebPEncoder());
+        this(root, new DefaultWebPEncoder(), new DefaultFileMover());
     }
 
     PhotoProcessor(Path root, WebPEncoder encoder) {
+        this(root, encoder, new DefaultFileMover());
+    }
+
+    PhotoProcessor(Path root, WebPEncoder encoder, FileMover mover) {
         this.root = root.toAbsolutePath().normalize();
         this.stagingDir = this.root.resolve(".processing").toAbsolutePath().normalize();
         this.encoder = encoder != null ? encoder : new DefaultWebPEncoder();
+        this.mover = mover != null ? mover : new DefaultFileMover();
         try {
             Files.createDirectories(this.stagingDir);
             Files.createDirectories(this.root);
@@ -543,7 +554,7 @@ class PhotoProcessor {
         }
 
         try {
-            Files.move(validCandidate, finalDest, StandardCopyOption.ATOMIC_MOVE);
+            mover.move(validCandidate, finalDest);
         } catch (AtomicMoveNotSupportedException e) {
             throw new IOException("El sistema de archivos no soporta movimiento atómico en uploads", e);
         }
@@ -675,6 +686,17 @@ class PhotoProcessor {
                 writer.write(null, new IIOImage(img, null, null), param);
             } finally {
                 writer.dispose();
+            }
+        }
+    }
+
+    static class DefaultFileMover implements FileMover {
+        @Override
+        public void move(Path source, Path target) throws IOException {
+            try {
+                Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                throw new IOException("El sistema de archivos no soporta movimiento atómico en uploads", e);
             }
         }
     }

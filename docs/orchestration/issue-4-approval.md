@@ -14,3 +14,11 @@ Decisiones G0 aprobadas explícitamente por Orca:
 - Limpieza limitada: borrado en finally únicamente de temporales de la llamada en curso; errores posteriores al retorno de URL o fallos de disco preservan datos y emiten advertencia operativa sin romper el contrato del bot ni alterar Session/Product.
 
 Fases autorizadas: B1 (validación y transformación), B2 (compresión, almacenamiento y serving), B3 (recursos, integración y evidencia). Gate de Orca requerido antes de cada transición de fase.
+
+---
+
+## Registro de Gates Aprobados por Orca
+
+- **Gate B1**: Aprobado por Orca tras validación de commit `06e482e` (Mensaje `msg_019a3f47c35e`). Pruebas unitarias de validación y transformación V1/V2/L1/O1/G1/C1 conformes.
+- **Gate B2**: Aprobado por Orca tras validación de commit `6bcd742` (Mensaje `msg_019a3f4e9f34`). Codificador WebP, política de bytes < 80000, parseo estricto RIFF y almacenamiento staging/ATOMIC_MOVE conformes.
+- **Gate B3**: Implementación de recursos D1, integración completa A1/A2, L2 (413 real con RANDOM_PORT), F1 (resiliencia de FS y symlinks) y documentación de procedencia y build report. Conforme y listo para entrega.
