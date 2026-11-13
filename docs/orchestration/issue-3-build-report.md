@@ -1,50 +1,46 @@
-# Reporte de Construcción y Verificación — Issue #3: Conversación confirmada y deshacer (v1.2)
+# Reporte de Construcción y Verificación — Issue #3: Conversación confirmada y deshacer (v1.3)
 
 **Fecha:** 2026-11-13
 **Implementador:** Antigravity (Software Builder)
 **Diseño de referencia:** Codex v1.0 (`docs/orchestration/issue-3-design.md`)
 **Aprobación de diseño:** Orca (`docs/orchestration/issue-3-approval.md`)
-**Auditorías de referencia:** Codex v1.0 (`docs/orchestration/issue-3-audit.md`) y Addendum v1.1 (`docs/orchestration/issue-3-audit.md#addendum-v11`)
+**Auditorías de referencia:** Codex v1.0, Addendum v1.1 y Addendum v1.2 (`docs/orchestration/issue-3-audit.md`)
 **Entorno de ejecución:** OpenJDK 25.0.4.1 (Microsoft Build 25.0.4.1+1-LTS) en `/home/gonzalocar/.jdks/ms-25.0.4.1`, Apache Maven 3.8.7 en `/usr/share/maven`, Linux x86_64
 
 ---
 
-## 1. Resumen de Correcciones tras Reauditoría v1.1 (F1–F4 y F7/G1)
+## 1. Resumen de Correcciones tras Reauditoría v1.2 (R1, R2 y Erratas Documentales)
 
-En cumplimiento de las instrucciones de Orca y los hallazgos de la reauditoría Codex v1.1 sobre `f387257`, se completaron las correcciones pendientes en tres bloques secuenciales con compuertas formales de validación:
+En cumplimiento de las instrucciones de Orca para la resolución atómica de los hallazgos de la reauditoría Codex v1.2 sobre `902bc75`, se ejecutaron las correcciones de código en `BotEngine.java` e `IntentParser.java`, junto con sus pruebas de regresión asociadas y la subsanación de erratas documentales:
 
-### Bloque 1 — Parser y Gramática Argentina (F1 y F2) — Aprobado por Orca (`msg_5c5b9dca688c`)
-- **F1 (Manejo estricto de referencias decimales y tokens compuestos)**:
-  - Referencias decimales con acento o coma (`la número 2.5`, `pieza 2,5`, `#2.5`, `# 2,5`, `la numero 2,5`): detección explícita sobre texto crudo antes de normalización, retornando `Invalid(DECIMAL_OR_CENTAVOS)` sin truncar silenciosamente al identificador entero.
-  - Frases numéricas habladas como referencias a piezas: ampliación de la ventana de análisis hasta 8 palabras e inspección de palabras residuales (`y`, decenas, unidades, dígitos) para evitar truncar expresiones inválidas o parciales. En particular, `ciento treinta y dos` consume los cuatro tokens y resuelve a la pieza 132 completa (verificado con fixture que contiene `#130` y `#132`).
-  - Detección exhaustiva de montos compuestos (`isPriceCandidate`) en `extractPricePortion`: mensajes con múltiples intentos de precio, incluyendo combinaciones donde el primer monto es decimal (`#2 a 15,50 por 20000`), negativo (`-15000`) o supera el límite intmax (`2147483648`), son rechazados como `Invalid(MULTIPLE_ACTIONS)` sin descartar el primer fragmento ni elegir silenciosamente el último.
-  - Detección de acciones múltiples coordinadas por delimitadores o coordinación explícita (`y`/`Y` o punto y coma, ej. `Cambiá el precio de #2 a 20000 Y sacá la pieza 2`) rechazada como `Invalid(MULTIPLE_ACTIONS)`.
-  - En `resolveTarget`, limpieza exhaustiva de preposiciones y palabras residuales (`de`, `la`, `el`, etc.) tras extraer el número de pieza. Se elimina la falsa contradicción con `Maceta de barro` ante `Cambiá el precio de #2`, preservando unívocamente el destino 2 y solicitando el precio faltante.
-- **F2 (Prefijos de comandos y títulos intactos)**:
-  - En `createPattern`, extracción del prefijo de comando (`Publicá`, `Esta es`, etc.) exactamente una vez al inicio del mensaje, preservando íntegramente títulos capturados como `Es amor` ante `Publicá Es amor a 15000`.
-  - Se ratifica el soporte contractual de expresiones coloquiales argentinas como `15 lucas`, `quince lucas`, `1 luca` y `una luca` (que resuelven a 15000 y 1000 respectivamente), aclarando que `15k` no forma parte de la gramática contractual aprobada.
-- **Suite:** `IntentParserTest.java` (60 pruebas pasando, 100% PASS).
+### R1 — Ambigüedad por Nombre Duplicado en Corrección de Destino
+- **Ubicaciones:** `BotEngine.java:293–305` y `BotEngine.java:571–585`.
+- **Diagnóstico v1.2:** Los handlers de corrección `TARGET` por String filtraban títulos disponibles coincidentes y utilizaban `.findFirst()`, seleccionando arbitrariamente la primera coincidencia (ej. #3 ante duplicado con #9) en lugar de exigir cardinalidad 1 y aclarar si hay varias piezas con el mismo nombre.
+- **Implementación conforme:**
+  - En ambos handlers (`handleCorrectionInConfirmation` y `handleCorrectionInDetails`), se obtienen todos los productos disponibles que coinciden con el título normalizado (`norm(p.title()).equals(sNorm)`).
+  - Si la lista tiene cardinalidad 1, se aplica unívocamente el `pieceNumber`.
+  - Si la lista tiene cardinalidad > 1, se preserva íntegro el estado de la sesión, la acción o borrador pendiente y el snapshot previo en base de datos sin mutaciones parciales, respondiendo con la enumeración descriptiva de candidatos: `"Hay varias piezas que coinciden (" + String.join(", ", candidateDescs) + "). Decime el numerito."`.
+  - Si no hay coincidencias, se responde `"No encuentro esa pieza disponible. Decime otro numerito."` preservando el estado intacto.
+  - La corrección subsiguiente `no, la pieza #9` actualiza el destino a 9, conservando la operación y monto fijados y repreguntando la confirmación (`¿Confirmás cambiar el precio de la pieza #9 (Taza panzona) a $25.000? Decime sí o no.`).
+- **Regresiones incorporadas en `BotEngineTest.java` (30 pruebas pasando, 100% PASS):**
+  - `testDuplicateNameCorrectionInConfirmationRequiresPieceNumberClarification`: alta de #9 "Taza panzona", inicio de cambio de precio en #2, corrección `no, la pieza Taza panzona` aclara candidatos (#3 y #9) sin resolver arbitrariamente; aclaración `no, la pieza #9` confirma y muta únicamente #9 a $25.000, dejando #3 ($12.000) y #2 ($18.500) intactos.
+  - `testDuplicateNameCorrectionInDetailsRequiresPieceNumberClarification`: en `AWAITING_DETAILS`, corrección con título duplicado en minúsculas repregunta candidatos y conserva borrador; aclaración `no, la pieza #9` solicita precio y completa el flujo hacia #9.
+  - `testUniqueNameCorrectionResolvesDirectly`: control positivo con título único (`Jarrón de gres`) resuelve directamente a #2.
 
-### Bloque 2 — Motor Conversacional, Codec e Invariantes (F3 y F4) — Aprobado por Orca (`msg_a0e51ce7dda8`)
-- **F3 (Correcciones explícitas y protección de borradores parciales)**:
-  - Corrección de destino `#N` (`no, la pieza #3`, `la pieza #3`, `el número es 3` o nombre único) en `AWAITING_CONFIRMATION` y `AWAITING_DETAILS`: procesada conforme a la sintaxis contractual aprobada, actualizando el target, preservando el precio establecido y repreguntando la confirmación correspondiente.
-  - Protección de borrador ante `CREATE` parcial incompatible sin foto: un mensaje como `Publicá Jarra a 20000` sin foto recibido mientras existe un borrador `Publicá Plato a 15000` es detectado por `isDraftIncompatible` (comparando títulos y precios conocidos), protegiendo el borrador previo íntegro y advirtiendo el conflicto sin mezclar datos.
-  - Secuencia `Cambiá el precio de #2` seguido de `no, dije 25000`: al conservar el destino 2 en el paso inicial, la corrección de precio completa exitosamente la acción `ChangePrice(2, 25000)` quedando lista para confirmar.
-- **F4 (Invariantes de operación y roundtrip estricto de codec)**:
-  - Protección estricta contra fotos inesperadas en operaciones que no admiten imagen (`PRICE` y `SOLD`): si el usuario envía una foto en `AWAITING_DETAILS`, el motor nunca almacena `imageUrl` en el borrador ni en `temp_image`. Se preserva el borrador válido intacto y se reiteran los datos faltantes, evitando que un mensaje vacío posterior sufra un wipe espurio a `IDLE` por rechazo del codec.
-  - Generación de payloads de borrador (`Draft`) con invariantes estructurales por operación (`PRICE` sin título/imagen, `SOLD` sin título/precio/imagen, `IMAGE` sin título/precio, `CREATE` sin target), garantizando roundtrip de codec estricto en cada mutación.
-- **Suites:** `BotEngineTest.java` (27 pruebas pasando) y `BotSessionCodecTest.java` (15 pruebas pasando).
+### R2 — Consumo Completo de Expresión de Precio y Rechazo de Residuos
+- **Ubicación:** `IntentParser.java:735–775`.
+- **Diagnóstico v1.2:** `extractPricePortion` filtraba fragmentos con `isPriceCandidate`, descartando silenciosamente tramos no numéricos o residuos ajenos a la gramática (`nada`), produciendo acciones `Complete` no autorizadas ante frases como `Cambiá el precio de #2 a 15000 por nada` o `... a nada por 15000`.
+- **Implementación conforme:**
+  - Se distingue el sustantivo `"el precio"` (cuando está precedido por `el`, `del`, `al`, `su`) para que no sea tratado como un delimitador espurio de importe.
+  - Tras identificar delimitadores válidos (`a`, `por`, `precio`), se extraen todos los fragmentos no vacíos. Si existe más de un fragmento o si coexisten un monto y un residuo no reconocido, la expresión se marca como múltiple/inválida (`multipleAmounts = true`), resultando en `Invalid(MULTIPLE_ACTIONS)` sin producir acción `Complete` y preservando el borrador íntegro.
+  - Se conservan todos los controles positivos contractuales: importes numéricos directos, agrupados con puntos (`18.500`), multiplicadores y coloquiales (`15 mil`, `15 lucas`, `1 luca`, `quince lucas`, `quince mil pesos`, `dieciocho quinientos`).
+  - En `extractPieceReferences`, se condicionó la inspección del token `y` para que sólo considere continuación numérica si precede a unidades (1..9) tras una decena, evitando que `pieza 1 y pieza 2` descarte falsamente la primera referencia.
+- **Regresiones incorporadas en `IntentParserTest.java` (61 pruebas pasando, 100% PASS):**
+  - `testPriceExpressionRejectsResidualChunksBeforeAndAfterValidAmount`: verifica el rechazo formal de `Cambiá el precio de #2 a 15000 por nada` y `... a nada por 15000` como `Invalid(MULTIPLE_ACTIONS)`, validando además los controles positivos con `a 15000`, `por 15000` y `por 15 lucas`.
 
-### Bloque 3 — Integración, Cierre de Evidencia y Exportación Limpia (F7 y G1)
-- **F7 (Corrección factual del informe y métodos reales)**:
-  - Se corrigieron los nombres de los métodos de prueba en la matriz y el reporte para coincidir exactamente con los identificadores reales del código fuente.
-  - Se aclara que el total local previo de 88 pruebas sí fue observado empíricamente en la v1.0, debiéndose la discrepancia de la tabla 99 a un error aritmético de redacción previa.
-  - Se ratifica la plena vigencia de `BotPersistenceTest` (D1) mediante 5 reinicios reales de Spring Boot / Hikari con proxies sobre base de datos física temporal SQLite.
-- **G1 (Evidencia limpia atribuible y empaquetado)**:
-  - Se realizó el commit de código `4f2eb56` (`4f2eb568f9ef298e3b1c6d3bc8527a050f757e23`).
-  - Se exportó dicho commit vía `git archive` a un directorio nuevo e independiente: `/tmp/norma-issue3-export-v11`.
-  - Se compararon todos los 56 archivos del árbol versionado contra el commit de git (0 discrepancias). Se constató la exclusión de archivos no versionados (`IntentFallback.java`, `ApiTest.java`).
-  - Se ejecutó secuencialmente `mvn -B clean verify` en el directorio de exportación con captura de log completo, exit code `0`, SHA del JAR generado y verificación byte a byte de clases empaquetadas.
+### Subsanación de Erratas Documentales de v1.2
+1. **SHA de commit previo rectificado:** El SHA largo de la entrega v1.2 (`4f2eb56`) corresponde efectivamente a `4f2eb56951ba7793b9c758670d23829651ad50bc`.
+2. **Descripción de empaquetado del JAR:** Se corrige la denominación a **47 archivos `.class` y 19 recursos** (totalizando 66 archivos bajo `BOOT-INF/classes`), verificados con 0 diferencias byte a byte frente a `target/classes`.
 
 ---
 
@@ -52,61 +48,56 @@ En cumplimiento de las instrucciones de Orca y los hallazgos de la reauditoría 
 
 | ID | Criterio | Estado | Evidencia de Validación |
 |---|---|---|---|
-| **P1** | Parser: límites de precios, rechazo de overflow, decimales y montos múltiples | Cumplido | `IntentParserTest`: 60 pruebas parametrizadas verificando rango hasta `Integer.MAX_VALUE`, rechazo de decimales con punto/coma, y montos compuestos (`testCompoundAmountsWithInvalidFirstAmountRejected`) |
-| **P2** | Destino único vs ambiguo / vendido / inexistente | Cumplido | `IntentParserTest.testContradictoryNumberAndNameRequiresClarification`, `testDecimalReferencesWithAccentOrCommaRejected`, `testSpokenNumberFull132Consumed`, `testChangePriceOfTargetWithoutPriceDoesNotCreateFalseContradiction` |
+| **P1** | Parser: límites de precios, rechazo de overflow, decimales, residuos y montos múltiples | Cumplido | `IntentParserTest`: 61 pruebas pasando, incluyendo rechazo de residuos no autorizados (`testPriceExpressionRejectsResidualChunksBeforeAndAfterValidAmount`), montos compuestos y límites de rango |
+| **P2** | Destino único vs ambiguo / vendido / inexistente | Cumplido | `IntentParserTest`: detección de ambigüedad nominal exacta y referencias múltiples contradictorias (`testConflictingReferences`); `BotEngineTest`: aclaración de duplicados en confirmación y detalles |
 | **F1** | CREATE, PRICE, IMAGE, SOLD aplican exclusivamente tras confirmación | Cumplido | `BotEngineTest.testOperationsOnlyOnConfirm` |
-| **F2** | FSM en los 3 estados, corrección de campos y protección de borradores | Cumplido | `BotEngineTest.testFsmTransitionsAndCorrections`, `testCorrectionTargetHash3InConfirmation`, `testPartialCreateConflictWithoutPhotoProtectsDraft`, `testChangePriceTargetThenCorrectionPriceCompletes` |
+| **F2** | FSM en los 3 estados, corrección de campos y protección de borradores | Cumplido | `BotEngineTest`: 30 pruebas pasando, incluyendo `testDuplicateNameCorrectionInConfirmationRequiresPieceNumberClarification` y `testDuplicateNameCorrectionInDetailsRequiresPieceNumberClarification` |
 | **F3** | Doble confirmación y no-op no duplican ni corrompen historial | Cumplido | `BotEngineTest.testDuplicateConfirmAndNoOp` |
 | **U1** | Deshacer de todas las operaciones (CREATE, PRICE, IMAGE, SOLD), consumo de slot único, no reciclado de numeración | Cumplido | `BotEngineTest.testUndoAllOperations`, `testUndoImageChange`, `testTwoCommitsAndUndoSecondOnly`, `testSnapshotPreservedAcrossNoOpCancelPrepare`, `testUndoDuringDraftWithAndWithoutSnapshot`, `testEmptyCatalogUndo` |
 | **J1** | Envelope v1, rechazo estricto de borrador vacío, campos incompatibles y roundtrip estricto | Cumplido | `BotSessionCodecTest` (15 pruebas), `BotEngineTest.testCorruptStateRecovery`, `testPriceDraftUnexpectedPhotoDoesNotPersistIncompatibleImageUrl` |
 | **T1** | Rollback atómico verificado con trigger SQL real sin transacción envolvente exterior | Cumplido | `BotEngineTest.testAtomicTransactionRollback` (verificación de excepción SQL e igualdad íntegra de `Session` y `Product` en conexión nueva) |
 | **T2** | Concurrencia real (doble sí, doble undo, confirm vs reset) sin estados parciales | Cumplido | `BotEngineTest.testConcurrentRaces` (ejecución multihilo con `CyclicBarrier`, verificación de high-water mark y catálogo íntegro frente a `DEFAULT`) |
 | **D1** | Persistencia real en archivo SQLite, reinicios de pool y undo entre sesiones | Cumplido | `BotPersistenceTest.testPersistenceAcrossSpringContextRestarts` (5 ciclos independientes de Spring Boot / Hikari) |
-| **A1** | Contratos de API: rechazo 400 de texto+audio, foto+audio, foto+texto multipart, STT fallido, TTS null | Cumplido | `BotApiTest` (6 pruebas MockMvc pasando: `testSimultaneousTextAndAudioReturns400`, `testMultipartPhotoAndAudioWithStub`, `testSttFailurePreservesState`, `testTtsNullStillDeliversReplyText`, `testMultipartPhotoAndTextTogether`, `testPhotoFollowedByDetailsAndConfirmWithTtsNull`) |
-| **G1** | Preservación íntegra de suites previas y clean verify completo en exportación limpia | Cumplido | 126 pruebas ejecutadas y aprobadas en exportación limpia (`128` localmente incluyendo `ApiTest` no versionado) |
+| **A1** | Contratos de API: rechazo 400 de texto+audio, foto+audio, foto+texto multipart, STT fallido, TTS null | Cumplido | `BotApiTest` (6 pruebas MockMvc pasando) |
+| **G1** | Preservación íntegra de suites previas y clean verify completo en exportación limpia | Cumplido | 130 pruebas ejecutadas y aprobadas en exportación limpia (`132` localmente incluyendo `ApiTest` no versionado) |
 
 ---
 
 ## 3. Matriz de Ejecución de Pruebas y Evidencia de Artefactos
 
-### Ejecución en Directorio de Exportación Limpia (`/tmp/norma-issue3-export-v11`)
+### Ejecución en Directorio de Exportación Limpia (`/tmp/norma-issue3-export-v12`)
 
-- **Comando:** `cd /tmp/norma-issue3-export-v11 && JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 PATH=/home/gonzalocar/.jdks/ms-25.0.4.1/bin:$PATH mvn -B clean verify`
+- **Commit exportado:** `cdabcae` (`cdabcaefddc7db2eb5c2482fe3f5dc1b2975e390`)
+- **Comando:** `cd /tmp/norma-issue3-export-v12 && JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 PATH=/home/gonzalocar/.jdks/ms-25.0.4.1/bin:$PATH mvn -B clean verify`
 - **Código de salida:** `EXIT_CODE=0`
-- **Log de ejecución completo:** `/tmp/norma-issue3-export-v11/clean-verify.log` (SHA-256: `967da6e2665967fa6d273ae00a7b8c84f49df8e7b8a6f5be99035893163a2c6f`)
-- **JAR generado:** `/tmp/norma-issue3-export-v11/target/taller-1.0.0.jar` (SHA-256: `db5367895ccc85ffbe6e3420756b5782ef72df23cbdabf1ee8cc7bbce3dd3040`)
-- **Verificación de empaquetado:** 66 entradas de clase en `BOOT-INF/classes` verificadas byte a byte contra `target/classes` (0 discrepancias).
+- **Log de ejecución completo:** `/tmp/norma-issue3-export-v12/clean-verify.log` (SHA-256: `f0d446b055a51db0f1863dcc731c643ab66436ff11c411d4bd2280ebfb33813c`)
+- **JAR generado:** `/tmp/norma-issue3-export-v12/target/taller-1.0.0.jar` (SHA-256: `07718bb9d856645652cd14d4c2d1e275c4bc82731326e1ce9e663cdcb1d31e7d`)
+- **Verificación de empaquetado:** 47 clases `.class` y 19 recursos (66 archivos totales bajo `BOOT-INF/classes`) verificados byte a byte contra `target/classes` (0 discrepancias).
 
-| Suite de Prueba | Pruebas Ejecutadas | Fallos | Errores | Ignoradas | Tiempo | SHA-256 Reporte XML (basedir `/tmp/norma-issue3-export-v11`) |
+| Suite de Prueba | Pruebas Ejecutadas | Fallos | Errores | Ignoradas | Tiempo | SHA-256 Reporte XML (basedir `/tmp/norma-issue3-export-v12`) |
 |---|---|---|---|---|---|---|
-| `CatalogMigrationTest` | 3 | 0 | 0 | 0 | 1.99 s | `c9c45c1e1c802136e5a0e0400590d805093c3376f479d298aa223db7aacb7b8e` |
-| `CatalogPersistenceTest` | 3 | 0 | 0 | 0 | 1.09 s | `d714ed634d1717c247dc370d31f9ba859deac3f5ec2b2ad8333e7fcbe98c77a7` |
-| `CatalogRepositoryTest` | 7 | 0 | 0 | 0 | 4.48 s | `fe5f5850230a830eddd720cfdd4848fedff12f56b0ee605714dd9a3cc61ac4df` |
-| `FlowTest` | 4 | 0 | 0 | 0 | 1.47 s | `dcac07b7f0100676471621ebd55bd0eb82d3c74b05c67f35fab83ce6ee8f1ae1` |
-| `BotPersistenceTest` | 1 | 0 | 0 | 0 | 4.81 s | `0aab6b19fa87fd5ffa6d9118125c8f1f7aed854de5dab2dd4ee23979ff190989` |
-| `BotApiTest` | 6 | 0 | 0 | 0 | 4.36 s | `1238be3c090f8127ac3d6d11d2d1cb2b66bd2cb33a98b76726a4c8b96c6ac6e7` |
-| `IntentParserTest` | 60 | 0 | 0 | 0 | 0.55 s | `ee311cc1b4593500374b1d0990aa177a8fe1419168203446588293abd95c860d` |
-| `BotSessionCodecTest` | 15 | 0 | 0 | 0 | 0.09 s | `239b99eda79f7d2adf8dbe84916af796074f10b45ebf3aabb7641e5cb9e2d3c4` |
-| `BotEngineTest` | 27 | 0 | 0 | 0 | 1.26 s | `fe6ac382ee393e9e695631a691188f24a8e14468da94832cdb638c8f27fd1375` |
-| **TOTAL (Exportación versionada)** | **126** | **0** | **0** | **0** | **~40 s (BUILD SUCCESS)** | — |
+| `CatalogMigrationTest` | 3 | 0 | 0 | 0 | 1.69 s | `3005c5f38b10b22474ec01cedd83335f7cbd4417399dd263967142a8034b5992` |
+| `CatalogPersistenceTest` | 3 | 0 | 0 | 0 | 1.09 s | `40551afb86c5a2436bea052f3d00dee755b1e340c99ef9889769cfc78953b0f0` |
+| `CatalogRepositoryTest` | 7 | 0 | 0 | 0 | 4.69 s | `29aa2a241ef5d15e023602bfe239c8a156367c144f3e43accfc4e04792d48b08` |
+| `FlowTest` | 4 | 0 | 0 | 0 | 1.29 s | `1b16327f0e94a8b3c9eb5bee927fc753583295fbf924cbafd5bfc4cf01e96ae0` |
+| `BotPersistenceTest` | 1 | 0 | 0 | 0 | 4.41 s | `5d281575b1d2280b2f52ebaa4adf3630deb6cc0b2d4d652f3d4d3e671cfb2067` |
+| `BotApiTest` | 6 | 0 | 0 | 0 | 4.51 s | `de869d25595c6e3b3751bd3d6981241b53cd130306764bc69d6fa60026a53956` |
+| `IntentParserTest` | 61 | 0 | 0 | 0 | 0.51 s | `fbef1b5f7a8c8ac82247b8549bd554d98187b02b93a150ec18046dafe9842fd0` |
+| `BotSessionCodecTest` | 15 | 0 | 0 | 0 | 0.08 s | `d735fe68a99805428972f956b8349b4cc62a040d427ed2022b8178b819914710` |
+| `BotEngineTest` | 30 | 0 | 0 | 0 | 1.34 s | `da3c58e836b5195b985edf0c598037ccb320fccef08cacfa3e56b76fd0351323` |
+| **TOTAL (Exportación versionada)** | **130** | **0** | **0** | **0** | **~35.8 s (BUILD SUCCESS)** | — |
 | *(ApiTest - local sin seguimiento)* | 2 | 0 | 0 | 0 | 1.70 s | *(solo presente en workspace local)* |
-| **TOTAL (Espacio local)** | **128** | **0** | **0** | **0** | **~29 s** | — |
+| **TOTAL (Espacio local)** | **132** | **0** | **0** | **0** | **~38.4 s** | — |
 
 ---
 
 ## 4. Archivos Modificados e Incorporados (Scope §9 Estricto)
 
 ```text
-Modificados:
-  src/main/java/com/norma/taller/Api.java
+Modificados en esta iteración (v1.3):
   src/main/java/com/norma/taller/BotEngine.java
-  src/main/java/com/norma/taller/BotModel.java
-  src/main/java/com/norma/taller/BotSessionCodec.java
   src/main/java/com/norma/taller/IntentParser.java
-  src/test/java/com/norma/taller/BotApiTest.java
   src/test/java/com/norma/taller/BotEngineTest.java
-  src/test/java/com/norma/taller/BotPersistenceTest.java
-  src/test/java/com/norma/taller/BotSessionCodecTest.java
   src/test/java/com/norma/taller/IntentParserTest.java
   docs/orchestration/issue-3-build-report.md
 
@@ -127,7 +118,7 @@ Archivos preservados e intactos (sin tocar):
 
 ## 5. Trazabilidad de Commits e Higiene
 
-1. **Commit de implementación probado:** `4f2eb56` (`4f2eb568f9ef298e3b1c6d3bc8527a050f757e23`), que incorpora los cambios de lógica en `IntentParser`, `BotEngine` y las nuevas pruebas de regresión.
-2. **Diferencia documental posterior:** La actualización del presente documento (`docs/orchestration/issue-3-build-report.md`) constituye el único cambio subsiguiente, registrando las mediciones y hashes verificados de la exportación limpia.
+1. **Commit de implementación probado y verificado en exportación:** `cdabcae` (`cdabcaefddc7db2eb5c2482fe3f5dc1b2975e390`), que implementa las correcciones R1 y R2 y sus 4 nuevas pruebas de regresión.
+2. **Diferencia documental posterior:** La actualización del presente informe (`docs/orchestration/issue-3-build-report.md`) constituye el único cambio subsiguiente, registrando las mediciones y hashes verificados de la exportación limpia en `/tmp/norma-issue3-export-v12`.
 3. **Higiene de formato:** `git diff --check` ejecutado sin errores de formato ni espacios en blanco finales.
 4. **No se realizaron operaciones de push remoto ni cierre de issues**, quedando el repositorio disponible para la reauditoría técnica final de Codex.
