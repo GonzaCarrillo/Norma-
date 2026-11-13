@@ -4,10 +4,6 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import javax.imageio.*;
-import javax.imageio.stream.ImageOutputStream;
-import net.coobird.thumbnailator.Thumbnails;
-import net.coobird.thumbnailator.geometry.Positions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -19,31 +15,19 @@ import org.springframework.util.LinkedMultiValueMap;
 public class MediaService {
  final Path root;private final String key;
  private final RestClient groq;
+ final PhotoProcessor photoProcessor;
  public MediaService(@Value("${norma.uploads}")String dir,@Value("${groq.api.key}")String key)throws IOException{
- root=Path.of(dir).toAbsolutePath();Files.createDirectories(root);this.key=key;
+ root=Path.of(dir).toAbsolutePath().normalize();
+ Files.createDirectories(root.resolve(".processing"));
+ Files.createDirectories(root);
+ this.key=key;
+ this.photoProcessor=new PhotoProcessor(root);
  var http=java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
  var factory=new org.springframework.http.client.JdkClientHttpRequestFactory(http);factory.setReadTimeout(Duration.ofSeconds(20));
  groq=RestClient.builder().baseUrl("https://api.groq.com/openai/v1").requestFactory(factory).build();
  }
  public String image(MultipartFile file)throws IOException{
- if(file.isEmpty()||file.getSize()>15*1024*1024)throw new IllegalArgumentException("La foto está vacía o pesa más de 15 MB.");
- java.awt.image.BufferedImage source;
- try(var input=ImageIO.createImageInputStream(file.getInputStream())){
- var readers=ImageIO.getImageReaders(input);if(!readers.hasNext())throw new IllegalArgumentException("Mandame una foto JPEG, PNG o WebP válida.");
- var reader=readers.next();try{reader.setInput(input);if((long)reader.getWidth(0)*reader.getHeight(0)>24000000)throw new IllegalArgumentException("La foto es demasiado grande. Reducila a menos de 24 megapíxeles.");source=reader.read(0);}finally{reader.dispose();}
- }
- var img=Thumbnails.of(source).size(800,600).crop(Positions.CENTER).asBufferedImage();
- String name=UUID.randomUUID()+".webp";Path dest=root.resolve(name);
- var writer=ImageIO.getImageWritersByMIMEType("image/webp").next();
- try{
- for(float quality=.8f;quality>=.1f;quality-=.1f){
- try(ImageOutputStream out=ImageIO.createImageOutputStream(dest.toFile())){
- writer.setOutput(out);var param=writer.getDefaultWriteParam();param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);param.setCompressionType(param.getCompressionTypes()[0]);param.setCompressionQuality(quality);writer.write(null,new IIOImage(img,null,null),param);
- }
- if(Files.size(dest)<80000)return "/media/"+name;
- }
- Files.deleteIfExists(dest);throw new IllegalArgumentException("No pude reducir esta foto. Probá con otra.");
- }finally{writer.dispose();}
+ return photoProcessor.process(file);
  }
  public String transcribe(MultipartFile audio)throws IOException{
  if(key.isBlank())throw new IllegalArgumentException("La transcripción no está configurada. Podés escribir el mensaje o usar un ejemplo.");
