@@ -45,9 +45,7 @@ public class Api {
 class MediaConfig implements WebMvcConfigurer{
  private final MediaService media;MediaConfig(MediaService m){media=m;}
  public void addResourceHandlers(ResourceHandlerRegistry registry){
-  if(media!=null&&media.root!=null){
-   registry.addResourceHandler("/media/**").addResourceLocations(media.root.toUri().toString());
-  }
+  registry.addResourceHandler("/media/**").addResourceLocations(media.root.toUri().toString());
  }
 }
 @RestControllerAdvice

@@ -255,4 +255,73 @@ public class BotSessionCodecTest {
                 "]}";
         assertTrue(codec.decodeSnapshot(nonBoolSold, SESS).isEmpty());
     }
+
+    // ==========================================
+    // F4 REGRESIONES AUDITORÍA CODEX v1.0
+    // ==========================================
+
+    @Test
+    @DisplayName("F4 Audit: Envelope con draft vacío {} es rechazado estrictamente como corrupto")
+    void testAuditF4EmptyDraftEnvelopeRejection() {
+        String emptyDraft = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{}}";
+        assertTrue(codec.decodePending(emptyDraft, SESS, null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("F4 Audit: Envelope con campos de operación incompatibles es rechazado estrictamente")
+    void testAuditF4IncompatibleOperationFieldsRejection() {
+        // SOLD con price
+        String soldWithPrice = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"SOLD\",\"target\":2,\"price\":50}}";
+        assertTrue(codec.decodePending(soldWithPrice, SESS, null).isEmpty());
+
+        // SOLD con title
+        String soldWithTitle = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"SOLD\",\"target\":2,\"title\":\"Plato\"}}";
+        assertTrue(codec.decodePending(soldWithTitle, SESS, null).isEmpty());
+
+        // PRICE con title
+        String priceWithTitle = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"PRICE\",\"target\":2,\"price\":5000,\"title\":\"Plato\"}}";
+        assertTrue(codec.decodePending(priceWithTitle, SESS, null).isEmpty());
+
+        // IMAGE con price
+        String imageWithPrice = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"IMAGE\",\"target\":2,\"imageUrl\":\"/img/a.jpg\",\"price\":5000}}";
+        assertTrue(codec.decodePending(imageWithPrice, SESS, null).isEmpty());
+
+        // CREATE con target
+        String createWithTarget = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"CREATE\",\"title\":\"Plato\",\"price\":5000,\"imageUrl\":\"/img/a.jpg\",\"target\":2}}";
+        assertTrue(codec.decodePending(createWithTarget, SESS, null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("F4 Audit: Create normaliza espacios y rechaza título > 100 en modelo y codec")
+    void testAuditF4CreateTitleConstraintsAndWhitespace() {
+        // Modelo Create normaliza espacios internos
+        BotModel.Create c = new BotModel.Create("  Plato   hondo   azul  ", 15000, "/img/p.jpg");
+        assertEquals("Plato hondo azul", c.title());
+
+        // Modelo Create rechaza > 100 caracteres
+        String longTitle = "A".repeat(101);
+        assertThrows(IllegalArgumentException.class, () -> new BotModel.Create(longTitle, 15000, "/img/p.jpg"));
+
+        // Codec decodePending rechaza título > 100 en draft
+        String jsonLongTitle = "{\"version\":1,\"sessionId\":\"" + SESS + "\",\"draft\":{\"operation\":\"CREATE\",\"title\":\"" + longTitle + "\",\"price\":15000,\"imageUrl\":\"/img/p.jpg\"}}";
+        assertTrue(codec.decodePending(jsonLongTitle, SESS, null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("F4 Audit: decodeSnapshot preserva espacios exactos sin trim destructivo")
+    void testAuditF4SnapshotPreservesExactWhitespaceRoundtrip() {
+        String originalTitle = "  Título con espacios  ";
+        String originalImage = "  /media/con espacios.webp  ";
+        List<Catalog.Product> products = List.of(
+                new Catalog.Product(999L, SESS, 1, originalTitle, 5000, originalImage, false)
+        );
+
+        String encoded = codec.encodeSnapshot(SESS, products);
+        Optional<List<Catalog.Product>> decoded = codec.decodeSnapshot(encoded, SESS);
+        assertTrue(decoded.isPresent());
+        assertEquals(1, decoded.get().size());
+        // Espacios intactos sin recorte
+        assertEquals(originalTitle, decoded.get().get(0).title());
+        assertEquals(originalImage, decoded.get().get(0).imageUrl());
+    }
 }

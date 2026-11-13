@@ -36,8 +36,9 @@ public final class BotModel {
     public record Create(String title, int price, String imageUrl) implements Action {
         public Create {
             Objects.requireNonNull(title, "title no puede ser null");
-            if (title.trim().isEmpty()) {
-                throw new IllegalArgumentException("title no puede ser vacio");
+            title = String.join(" ", title.trim().split("\\s+"));
+            if (title.isEmpty() || title.length() > 100) {
+                throw new IllegalArgumentException("title debe tener entre 1 y 100 caracteres");
             }
             if (price <= 0) {
                 throw new IllegalArgumentException("price debe ser positivo");
@@ -46,7 +47,6 @@ public final class BotModel {
             if (imageUrl.trim().isEmpty()) {
                 throw new IllegalArgumentException("imageUrl no puede ser vacia");
             }
-            title = title.trim();
         }
     }
 

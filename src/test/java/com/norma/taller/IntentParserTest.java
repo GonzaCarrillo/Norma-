@@ -221,4 +221,91 @@ public class IntentParserTest {
         // Incompleto lanza IllegalArgumentException clara
         assertThrows(IllegalArgumentException.class, () -> parser.parse("Cambiá el precio", null, sampleProducts));
     }
+
+    // ==========================================
+    // REGRESIONES EXACTAS F1 Y F2 AUDITORÍA v1.0
+    // ==========================================
+
+    @Test
+    @DisplayName("F1.1: Contradicción número y nombre explícito requiere aclaración y no elige arbitrariamente")
+    void testContradictoryNumberAndNameRequiresClarification() {
+        // En sampleProducts, #2 es 'Maceta azul', #3 es 'Maceta roja', #1 es 'Cuenco rústico'
+        // 'Sacá la pieza 2 cuenco rústico' tiene contradicción entre #2 y #1
+        BotModel.ParseResult r = parser.interpret("Sacá la pieza 2 cuenco rústico", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Ambiguous.class, r);
+        BotModel.Ambiguous amb = (BotModel.Ambiguous) r;
+        assertEquals(List.of(1, 2), amb.candidatePieceNumbers());
+    }
+
+    @Test
+    @DisplayName("F1.2: Referencia decimal 2.5 se rechaza explícitamente y no se trunca a 2")
+    void testDecimalReferenceRejected() {
+        BotModel.ParseResult r = parser.interpret("Sacá la pieza 2.5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r).reason());
+    }
+
+    @Test
+    @DisplayName("F1.3: Varios montos en cambio de precio requieren aclaración y no eligen el último")
+    void testMultipleAmountsRejected() {
+        BotModel.ParseResult r = parser.interpret("Cambiá el precio de #2 a 15000 por 20000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r).reason());
+    }
+
+    @Test
+    @DisplayName("F1.4: Acciones separadas por ';' no se ejecutan parcialmente ni eligen la última")
+    void testSemicolonSeparatedActionsRejected() {
+        BotModel.ParseResult r = parser.interpret("Cambiá el precio de #2 a 20000; sacá la pieza 2", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r).reason());
+    }
+
+    @Test
+    @DisplayName("F2.1: Prefijos completos 'Esta es' y palabras con prefijo como 'Estrella' preservan título y espacios")
+    void testTitlePrefixesAndSpacings() {
+        BotModel.ParseResult r1 = parser.interpret("Esta es Jarra a 15000", "foto.jpg", sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r1);
+        BotModel.Create c1 = (BotModel.Create) ((BotModel.Complete) r1).action();
+        assertEquals("Jarra", c1.title());
+        assertEquals(15000, c1.price());
+
+        BotModel.ParseResult r2 = parser.interpret("Estrella a 15000", "foto.jpg", sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r2);
+        BotModel.Create c2 = (BotModel.Create) ((BotModel.Complete) r2).action();
+        assertEquals("Estrella", c2.title());
+        assertEquals(15000, c2.price());
+    }
+
+    @Test
+    @DisplayName("F2.2: Gramática canónica y coloquial estricta de números y centenas")
+    void testCanonicalAndColloquialGrammarRules() {
+        // dieciocho cien -> 18100
+        assertEquals(18100, parser.price("dieciocho cien"));
+
+        // 'cien cincuenta' es inválido (debe ser 'ciento cincuenta')
+        assertNull(parser.price("cien cincuenta"));
+        assertEquals(150, parser.price("ciento cincuenta"));
+
+        // 'un' o 'veintiún' solos no son números canónicos válidos aislados
+        assertNull(parser.price("un"));
+        assertNull(parser.price("veintiún"));
+        assertNull(parser.price("veintiun"));
+
+        // pero ante mil o millón sí son válidos
+        assertEquals(1000000, parser.price("un millón"));
+        assertEquals(21000, parser.price("veintiún mil"));
+
+        // 'treinta y veinte quinientos' es inválido (tras 'y' sólo unidades 1..9)
+        assertNull(parser.price("treinta y veinte quinientos"));
+    }
+
+    @Test
+    @DisplayName("F2.3: Números hablados como referencias a piezas")
+    void testSpokenNumberReferences() {
+        BotModel.ParseResult r = parser.interpret("Sacá la pieza dos", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r);
+        BotModel.Sell s = (BotModel.Sell) ((BotModel.Complete) r).action();
+        assertEquals(2, s.pieceNumber());
+    }
 }

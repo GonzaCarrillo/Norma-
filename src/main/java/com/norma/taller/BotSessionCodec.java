@@ -205,8 +205,8 @@ public class BotSessionCodec {
                 }
 
                 JsonNode draftNode = root.get("draft");
-                if (draftNode == null || !draftNode.isObject()) {
-                    return Optional.empty();
+                if (draftNode == null || !draftNode.isObject() || draftNode.isEmpty()) {
+                    return Optional.empty(); // Envelope con draft vacio o corrupto rechazado (§6, F4)
                 }
 
                 Set<String> allowedDraft = Set.of("operation", "target", "title", "price", "imageUrl", "candidates");
@@ -228,6 +228,25 @@ public class BotSessionCodec {
                     }
                 }
 
+                // Incompatibilidad de campos por operacion en envelope v1 (§6, F4)
+                if (op == BotModel.Operation.SOLD) {
+                    if (draftNode.has("title") || draftNode.has("price") || draftNode.has("imageUrl")) {
+                        return Optional.empty();
+                    }
+                } else if (op == BotModel.Operation.PRICE) {
+                    if (draftNode.has("title") || draftNode.has("imageUrl")) {
+                        return Optional.empty();
+                    }
+                } else if (op == BotModel.Operation.IMAGE) {
+                    if (draftNode.has("title") || draftNode.has("price")) {
+                        return Optional.empty();
+                    }
+                } else if (op == BotModel.Operation.CREATE) {
+                    if (draftNode.has("target") || draftNode.has("candidates")) {
+                        return Optional.empty();
+                    }
+                }
+
                 Integer target = null;
                 if (draftNode.has("target")) {
                     target = parseStrictInt(draftNode.get("target"), 1, 2147483646);
@@ -238,8 +257,9 @@ public class BotSessionCodec {
                 if (draftNode.has("title")) {
                     JsonNode titNode = draftNode.get("title");
                     if (!titNode.isTextual()) return Optional.empty();
-                    title = titNode.asText().trim();
-                    if (title.isEmpty()) title = null;
+                    String rawTitle = titNode.asText();
+                    title = String.join(" ", rawTitle.trim().split("\\s+"));
+                    if (title.isEmpty() || title.length() > 100) return Optional.empty();
                 }
 
                 Integer price = null;
@@ -267,6 +287,11 @@ public class BotSessionCodec {
                         cList.add(cVal);
                     }
                     candidates = cList;
+                }
+
+                // Draft debe contener datos útiles y no estar completamente vacío
+                if (op == null && target == null && title == null && price == null && imageUrl == null && (candidates == null || candidates.isEmpty())) {
+                    return Optional.empty();
                 }
 
                 // Si viene tempImage en la sesion y imageUrl en draft, deben coincidir exactamente si ambos presentes
@@ -453,23 +478,23 @@ public class BotSessionCodec {
             if (pieceNumber == null) return Optional.empty();
             if (!pieceNumbers.add(pieceNumber)) return Optional.empty(); // duplicado en lote
 
-            // title: textual no vacio (no limit 100 for historical snapshot per design)
+            // title: textual no vacio (no limit 100 for historical snapshot per design; no trimming to preserve exact snapshot roundtrip)
             JsonNode titNode = item.get("title");
             if (titNode == null || !titNode.isTextual() || titNode.asText().trim().isEmpty()) {
                 return Optional.empty();
             }
-            String title = titNode.asText().trim();
+            String title = titNode.asText();
 
             // price: int positivo 1..2147483647
             Integer price = parseStrictInt(item.get("price"), 1, 2147483647);
             if (price == null) return Optional.empty();
 
-            // imageUrl: textual no vacio
+            // imageUrl: textual no vacio (no trimming to preserve exact snapshot roundtrip)
             JsonNode imgNode = item.get("imageUrl");
             if (imgNode == null || !imgNode.isTextual() || imgNode.asText().trim().isEmpty()) {
                 return Optional.empty();
             }
-            String imageUrl = imgNode.asText().trim();
+            String imageUrl = imgNode.asText();
 
             // sold: boolean real
             JsonNode soldNode = item.get("sold");
