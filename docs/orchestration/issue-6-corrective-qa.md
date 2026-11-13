@@ -44,3 +44,39 @@ La auditoría se ejecutó sobre `git archive HEAD` exportado en `target/qa.sojvN
 Conforme a esa instrucción, la confirmación del usuario satisface el gate de V1-zoom200 para esta revisión y reemplaza el requisito de que Copilot repita la ejecución automatizada. El usuario no reportó navegador, versión, dimensión de ventana, valores observados, método ni capturas. No se inventa ni se atribuye esa evidencia a Copilot; la limitación técnica observada durante esta auditoría queda registrada solo como antecedente.
 
 El hallazgo intermitente de SSE permanece **ABIERTO**. Antigravity tiene asignado su diagnóstico en `ctx_da62f6aa396a`; no se emite `QA_APPROVED` hasta recibir y revisar la resolución sobre la entrega correspondiente. Esta adenda es documental: no se repitieron pruebas ni se modificó código de producción.
+
+## Reauditoría SSE v2.1 — 2026-11-13
+
+- **Dictamen de esta reauditoría:** QA_REJECTED
+- **SHA auditado:** `e79e3b1523263927396f090e1c417362dba30728`
+- **Base de implementación v2.1:** `e89c04bd225460683f004b6a59510d9003b1e191`
+- **Diseño:** `docs/orchestration/issue-6-sse-design-v2.1.md`
+- **Entorno:** Linux 6.14.0-37-generic; Microsoft OpenJDK `25.0.4.1+1-LTS`; Apache Maven `3.8.7`.
+- **Worktree:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`, rama `GonzaCarrillo/reconcile-6-storefront`; limpio al inicio, HEAD `e79e3b1523263927396f090e1c417362dba30728`.
+
+El usuario aceptó manualmente el zoom nativo según la adenda anterior; esa decisión se conserva y no se repitió la prueba. El resto de esta reauditoría inspeccionó el diff desde `e89c04b`, verificó la evidencia de builder y ejecutó `mvn -B clean verify` sobre `git archive HEAD` en `target/qa-sse.rlpc3A/export`, con base de pruebas y puertos del runner, sin modificar pruebas ni producción.
+
+### Build y evidencia
+
+- **Resultado real:** `BUILD SUCCESS`, exit code `0`; 17 suites, 197 tests, 0 failures, 0 errors, 0 skipped.
+- **JAR SHA-256:** `68ece117c11487365adc91d7367adb19a7b3336f3f47e4e5624d461d141928a3`.
+- **Log sin comprimir SHA-256:** `2e1e0c48d14fa38f545f00b2e98ebb2a8e6cf8d92f698f874afa65a74a974418`.
+- **Basedir Surefire:** `target/qa-sse.rlpc3A/export`.
+- Log, XML Surefire de las 17 suites, resumen, SHA y commit están en `docs/orchestration/issue-6-corrective-evidence/qa/v2.1/`.
+
+### Verificaciones específicas
+
+| Criterio | Resultado | Evidencia |
+|---|---|---|
+| `send()` fallido no propaga, emisor retirado y mapa limpiado; `complete()` falla con excepción runtime | PASS | `ApiPublishTest.testBrokenEmitterDoesNotThrowAndIsRemoved` mockea `IOException` en `send()` e `IllegalStateException` en `complete()`, comprueba no propagación, retiro y eliminación de la clave. |
+| Emisor sano continúa tras fallo de otro | PASS | `testHealthyEmitterStillReceivesWhenAnotherFails` comprueba llamada a `send()` del sano y retiro del roto. |
+| Aislamiento entre sesiones | PASS | `testSessionIsolation` verifica que publicar en A no notifica B y que B sí recibe al publicar su sesión. |
+| Control positivo del baseline | PARCIAL | `testPositiveControlBaselineBehavior` reproduce en una lambda el `catch` anterior sin protección y comprueba que el mock de `complete()` propaga. No invoca directamente una implementación baseline; el diff confirma que el commit padre sí llamaba `e.complete()` sin protección. |
+| SSE HTTP real: desconectar, confirmar mutación, reconectar y recuperar por GET | PASS | `StorefrontSseTest` usa servidor aleatorio, cierra `readerA`, ejecuta dos POSTs cuya respuesta exitosa exige HTTP 200, reabre el stream y comprueba `catalog-update/conectado` y precio 35000 por GET. La prueba conserva los asserts de aislamiento y eventos previos. |
+| Fuera de la frontera SSE | PASS por inspección de diff | `message`, DTOs, `MediaConfig` y `ApiErrors` no se modificaron; no se alteraron contrato, POM, SQL o estáticos. |
+
+### Hallazgo bloqueante
+
+**P2 — Carrera en retiro de lista con suscripción simultánea.** En el callback `cleanup` y en `publish`, el código retira el emitter, comprueba `list.isEmpty()` y luego ejecuta `streams.remove(sessionId, list)`. Entre la comprobación y el `remove`, un `stream()` concurrente puede obtener esa misma lista mediante `computeIfAbsent` y añadir un nuevo emitter; el retiro condicional todavía elimina del mapa la lista ahora no vacía. La nueva suscripción queda huérfana y no recibirá publicaciones posteriores. Es una intercalación reproducible por el orden de operaciones observado en código, no una falla empírica de la suite; no hay prueba que la cubra. Bloquea QA hasta resolver/justificar la sincronización del ciclo de vida y añadir una regresión para registro concurrente con cleanup del último emitter.
+
+**Conclusión de v2.1:** aunque el build y los casos SSE solicitados pasan, no emito `QA_APPROVED` porque la limpieza puede retirar una lista que ya contiene una conexión activa. La adenda manual del zoom permanece aceptada. No modifiqué código de producción ni pruebas; la corrección corresponde a Antigravity y requiere una nueva reauditoría sobre su SHA.
