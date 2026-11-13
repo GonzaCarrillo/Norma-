@@ -1,188 +1,127 @@
-# Especificación Técnica y Diseño Arquitectónico v3.0 — Componente de Fallback de Intenciones (H1)
+# Especificación Técnica y Diseño Arquitectónico v3.1 — Componente e Integración de Fallback de Intenciones (H1)
 
 **Issue**: [#5 — Soporte de voz argentina y transcripción con fallbacks](https://github.com/GonzaCarrillo/Norma-/issues/5)  
-**Versión**: 3.0 (Codex v3 Aprobado para Despacho)  
+**Versión**: 3.1 (Codex v3.1 Aprobado para Despacho — Gate de Integración en Api)  
 **Fecha**: 13 de Noviembre de 2026  
 **Autor**: Codex (Software Architect) / Registrado por Antigravity (Software Builder)  
 **Rama**: `GonzaCarrillo/reconcile-5-voice`  
-**Estado**: Aprobado para construcción aislada en Fase 2; cableado a `Api.java` diferido a Gate de Integración post-SSE #6.
+**Estado**: Componente e Integración en `Api.java` implementados bajo contrato estricto; base unificada con `origin/main` (SSE #6 cerrado en `8cdacbe`).
 
 ---
 
-## 1. Contexto, Motivación y Aislamiento
+## 1. Contexto, Motivación y Base Unificada
 
-Durante la conciliación de la Issue #5, se completaron y auditaron exitosamente los requerimientos de audio y transcripción (H2 y H3 bajo commit `06f86f7`). El requerimiento H1 (fallback de intenciones asistido por LLM) fue aislado arquitectónicamente para evitar colisiones concurrentes con el desarrollo del endpoint SSE en la Issue #6.
+Tras la consolidación y cierre de la Issue #6 en `origin/main` (commit `8cdacbe`), se habilitó el gate de integración para conectar el componente `IntentFallback.java` (desarrollado y probado aisladamente en `c920ed3`) en `Api.java`.
 
-Este diseño establece el contrato definitivo para el componente `IntentFallback.java` y su suite de pruebas deterministas `IntentFallbackTest.java`, cumpliendo rigurosamente los siguientes principios:
-1. **Aislamiento absoluto**: No se modifica `Api.java`, `BotEngine.java`, `IntentParser.java`, `Catalog.java`, esquemas SQL, POM, propiedades ni assets de frontend.
-2. **El modelo solo propone**: El LLM (`llama-3.3-70b-versatile`) actúa exclusivamente como un normalizador de texto cuando la gramática estricta no reconoce la intención. La FSM y el validador determinista retienen toda la autoridad sobre la transición de estados, validación y confirmación.
-3. **Inmunidad contra inyección de control**: Los comandos de control conversacional (`CONFIRM`, `CANCEL`, `UNDO`) quedan estrictamente prohibidos en el fallback; jamás se convierten en comandos de catálogo.
-4. **Verificación estricta de evidencia**: El modelo no puede inventar títulos, precios, números de pieza ni URLs de imagen. Todo dato aceptado debe ser una subcadena literal verificable del texto de entrada.
+La integración se realiza mediante merge limpio de `origin/main` en la rama `GonzaCarrillo/reconcile-5-voice`, preservando la atomicidad de las publicaciones SSE (`catalog-update`) y garantizando:
+1. **Aislamiento transaccional**: La llamada al proveedor de red Groq (`IntentFallback.normalize`) ocurre estrictamente fuera de cualquier bloque `@Transactional` y sin retención de bloqueos de base de datos SQLite.
+2. **Autoridad de la FSM**: El LLM solo propone texto canónico normalizado; la FSM (`BotEngine`) sigue requiriendo confirmación explícita (`AWAITING_CONFIRMATION`) antes de mutar el catálogo.
+3. **Inmunidad de controles**: Controles conversacionales (`CONFIRM`, `CANCEL`, `UNDO`) y borradores pendientes jamás activan el modelo.
+4. **Degradación transparente**: Ante cualquier fallo de red, clave ausente o JSON no conforme, se conserva el texto original intacto y `BotEngine` responde de forma nativa.
 
 ---
 
-## 2. Contrato de la API y Ciclo de Vida del Componente
+## 2. Contrato de Integración en `Api.java`
 
-### 2.1 Definición de Clase y Dependencias
+### 2.1 Inyección de Dependencias y Constructores
+
+`Api.java` declara explícitamente las dependencias de interpretación y fallback:
 
 ```java
-package com.norma.taller;
+@RestController
+public class Api {
+    private final Catalog catalog;
+    private final BotEngine bot;
+    private final MediaService media;
+    private final IntentParser parser;
+    private final IntentFallback fallback;
 
-@Component
-public class IntentFallback {
-    public Optional<String> normalize(String original, String image, List<Catalog.Product> products);
+    @Autowired
+    public Api(Catalog c, BotEngine b, MediaService m, IntentParser parser, IntentFallback fallback) {
+        this.catalog = c;
+        this.bot = b;
+        this.media = m;
+        this.parser = parser;
+        this.fallback = fallback;
+    }
+
+    // Adaptador de 3 argumentos para compatibilidad regresiva en pruebas unitarias aisladas sin red
+    public Api(Catalog c, BotEngine b, MediaService m) {
+        this(c, b, m, new IntentParser(), null);
+    }
 }
 ```
 
-### 2.2 Constructores y Configuración
+### 2.2 Flujo de Procesamiento en `POST /api/bot/message`
 
-El componente expone dos constructores:
-1. **Constructor de Producción (Spring IoC)**:
-   ```java
-   @Autowired
-   public IntentFallback(
-           @Value("${groq.api.key:}") String key,
-           IntentParser parser,
-           ObjectMapper json
-   )
-   ```
-   Configura un `RestClient` apuntando a `https://api.groq.com/openai/v1` con `JdkClientHttpRequestFactory`, `connectTimeout = Duration.ofSeconds(3)` y `readTimeout = Duration.ofSeconds(8)`. No implementa reintentos automáticos ni bloqueos prolongados.
-2. **Constructor Inyectable para Pruebas (Test Fixture)**:
-   ```java
-   public IntentFallback(
-           String key,
-           IntentParser parser,
-           ObjectMapper json,
-           RestClient client
-   )
-   ```
-   Permite sustituir el `RestClient` por un mock o fixture HTTP local sin dependencias de red ni claves reales.
-
-### 2.3 Políticas de Seguridad y Red
-
-- **Clave ausente o en blanco**: Si `groq.api.key` es vacía o nula, `normalize` retorna inmediatamente `Optional.empty()` sin llamadas de red ni errores.
-- **Fallas de comunicación**: Cualquier excepción HTTP (4xx, 5xx), timeout de conexión o lectura, interrupción o parseo corrupto retorna inmediatamente `Optional.empty()`.
-- **Privacidad y Auditoría**: Queda terminantemente prohibido loguear la clave de API (`groq.api.key`), el texto íntegro de mensajes del usuario o secretos en bitácoras (`logger`).
-- **Contexto Transaccional**: No debe ejecutarse jamás dentro de un bloque `@Transactional` activo de base de datos.
+El endpoint ejecuta el siguiente pipeline secuencial:
+1. Validaciones perimetrales: validación de formato de `sessionId`, rechazo de texto y audio simultáneos (HTTP 400), límite de longitud de texto <= 1000 caracteres.
+2. Procesamiento de medios:
+   - Si viene audio: transcripción mediante `media.transcribe(audio)` (HTTP 400 en caso de fallo STT).
+   - Si viene imagen: persistencia y normalización WebP mediante `media.image(image)`.
+3. **Condición de activación de `IntentFallback`**:
+   - Se asegura la sesión: `catalog.ensure(sessionId)`.
+   - Se consulta el estado actual de la sesión: `Catalog.Session sess = catalog.session(sessionId)`.
+   - Se consulta el catálogo actual: `List<Catalog.Product> products = catalog.all(sessionId)`.
+   - **Evaluación cuádruple**:
+     1. `fallback != null`
+     2. `"IDLE".equals(sess.state())` (estado base sin conversación pendiente).
+     3. `sess.pending() == null` (sin borrador a la espera de confirmación o detalles).
+     4. `parser.extractControl(text, photo) instanceof BotModel.None` (el mensaje no es señal de control).
+     5. `parser.interpret(text, photo, products, null) instanceof BotModel.Unknown` (la gramática estricta determinista no reconoció el comando).
+4. **Normalización y Reemplazo**:
+   - Si se cumplen las condiciones, se invoca `fallback.normalize(text, photo, products)`.
+   - Si retorna `Optional.of(canonicalCommand)`, la variable `text` se sustituye por dicho comando canónico antes de invocar a `bot.process(...)`.
+   - Si retorna `Optional.empty()`, se preserva el `text` original.
+5. Procesamiento conversacional y publicación:
+   - Invocación a `bot.process(sessionId, text, photo)`.
+   - Publicación SSE atómica a todos los clientes conectados a la sesión: `publish(sessionId)`.
+   - Retorno del objeto inmutable `BotEngine.Reply(result.replyText(), media.speak(result.replyText()), result.state())`.
 
 ---
 
-## 3. Contrato Estricto de Salida del LLM
+## 3. Matriz de Comportamiento de Activación
 
-### 3.1 Parámetros de la Invocación a Groq
-
-- **Endpoint**: `POST /chat/completions`
-- **Modelo**: `llama-3.3-70b-versatile`
-- **Temperatura**: `0` (determinismo máximo)
-- **Response Format**: `{"type": "json_object"}`
-- **System Prompt**: Instruye al modelo a extraer únicamente intenciones de catálogo argentino con evidencia literal, o retornar campos vacíos si no es explícito.
-
-### 3.2 Esquema JSON Estricto y Reglas de Deserialización
-
-La respuesta del modelo debe ser un objeto JSON plano con exactamente 4 claves:
-
-```json
-{
-  "operation": "CREATE | PRICE | IMAGE | SOLD",
-  "targetEvidence": "subcadena literal o vacio",
-  "priceEvidence": "subcadena literal o vacio",
-  "titleEvidence": "subcadena literal o vacio"
-}
-```
-
-Reglas estrictas de parsing (Jackson):
-1. **Detección de duplicados**: `JsonParser.Feature.STRICT_DUPLICATE_DETECTION` activado. Cualquier clave duplicada causa el descarte total (`Optional.empty()`).
-2. **Sin propiedades desconocidas**: La presencia de cualquier campo adicional a los 4 permitidos invalida la respuesta.
-3. **Sin coerción de tipos**: Todos los 4 valores deben ser strings primitivos (`isTextual()`). No se admiten números, booleanos, arrays, objetos anidados ni literales nulos.
-4. **Sin contenido residual**: No se permiten tokens o caracteres adicionales tras el cierre del objeto JSON.
+| Estado Sesión | Borrador Pendiente | Control (`extractControl`) | Interpretación (`interpret`) | ¿Consulta al LLM (`normalize`)? | Resultado ante Fallback |
+|---|---|---|---|---|---|
+| `IDLE` | `null` | `None` | `Unknown` | **SÍ** | Si propone válido -> FSM pasa a `AWAITING_CONFIRMATION`. Si falla -> bot responde "No entendí". |
+| `IDLE` | `null` | `None` | `Complete` | **NO** | Gramática determinista resuelve directo a `AWAITING_CONFIRMATION`. |
+| `IDLE` | `null` | `None` | `NeedsDetails` | **NO** | Gramática determinista pide el dato faltante (FSM pasa a `AWAITING_DETAILS`). |
+| `IDLE` | `null` | `None` | `Ambiguous` | **NO** | Gramática determinista pide aclarar el número de pieza. |
+| `IDLE` | `null` | `None` | `Invalid` | **NO** | Gramática determinista devuelve mensaje de error descriptivo. |
+| `AWAITING_DETAILS` | `draft != null` | Cualquiera | Cualquiera | **NO** | El usuario está completando un dato pendiente; el motor resuelve. |
+| `AWAITING_CONFIRMATION` | `draft != null` | `Confirm` ("si") | No aplica | **NO** | Se procesa la confirmación y se muta el catálogo a `IDLE`. |
+| `AWAITING_CONFIRMATION` | `draft != null` | `Cancel` ("no") | No aplica | **NO** | Se cancela la acción y se vuelve a `IDLE`. |
+| Cualquiera | Cualquiera | `Undo` | No aplica | **NO** | Deshacer conversacional sin intervención de red. |
 
 ---
 
-## 4. Validación de Evidencia y Reconstrucción Canónica
+## 4. Garantías de Seguridad y Concurrencia
 
-Para que una propuesta del modelo sea aceptada, debe cumplir todas y cada una de las siguientes validaciones locales:
-
-### 4.1 Subcadenas Literales (Anti-Alucinación)
-- Toda evidencia no vacía (`targetEvidence`, `priceEvidence`, `titleEvidence`) debe existir como subcadena literal exacta en el mensaje `original` (`original.contains(evidence)`).
-- Longitud acotada: `titleEvidence.length() <= 100`.
-
-### 4.2 Matriz de Campos por Operación
-Los campos que no corresponden a la operación declarada deben ser cadenas vacías (`""`):
-
-| Operación | `targetEvidence` | `priceEvidence` | `titleEvidence` | URL de Imagen |
-|---|---|---|---|---|
-| `CREATE` | Vacío (`""`) | Requerido (`original.contains`) | Requerido (`original.contains`) | Proviene del parámetro `image` (nunca del LLM) |
-| `PRICE` | Requerido (`original.contains`) | Requerido (`original.contains`) | Vacío (`""`) | No aplica |
-| `IMAGE` | Requerido (`original.contains`) | Vacío (`""`) | Vacío (`""`) | Proviene del parámetro `image` (nunca del LLM) |
-| `SOLD` | Requerido (`original.contains`) | Vacío (`""`) | Vacío (`""`) | No aplica |
-
-### 4.3 Validación de Destino (`targetEvidence`)
-- Debe contener una referencia explícita a una pieza mediante el patrón `(?:(?:la\\s+)?(?:pieza|n[uú]mero|numero)\\s*[:#]?\\s*|#\\s*)(\\d+|[a-záéíóúñ]+)`.
-- El número extraído debe corresponder a una pieza existente en `products` que esté **activa** (`!product.sold()`).
-- Si la pieza está vendida, no existe, o existen múltiples referencias contradictorias en el texto de entrada, se rechaza inmediatamente (`Optional.empty()`).
-
-### 4.4 Validación de Precio (`priceEvidence`)
-- Debe ser convertible a un entero positivo mediante `parser.price(priceEvidence) > 0`.
-- Si el precio no es válido o resulta menor o igual a cero, se rechaza.
-
-### 4.5 Inmunidad de Controles
-- Si el mensaje `original` corresponde a un control conversacional (`CONFIRM`, `CANCEL`, `UNDO`), verificado por `parser.extractControl(original, image)`, el componente no invoca al LLM y retorna `Optional.empty()`.
-
-### 4.6 Reconstrucción Canónica Local y Validación con `IntentParser`
-
-Una vez verificados los fragmentos literales, el componente no ejecuta acciones por sí mismo. En su lugar, construye una sentencia canónica en español coloquial estandarizado:
-- `CREATE`: `"Publicá " + titleEvidence.trim() + " a " + priceVal + " pesos"`
-- `PRICE`: `"A la número " + targetNum + " subila a " + priceVal + " pesos"`
-- `IMAGE`: `"Cambiá la foto de la pieza " + targetNum`
-- `SOLD`: `"Ya vendí la pieza " + targetNum`
-
-Dicha sentencia se envía a `parser.interpret(canonical, image, products, null)`.
-**Criterio de Aceptación**: Se acepta la normalización únicamente si `parser.interpret` retorna una instancia de `BotModel.Complete` cuya acción interna coincide de forma exacta con los campos validados (`operation`, `targetNum`, `priceVal`, `title`, `image`).
-Cualquier otro resultado (`NeedsDetails`, `Ambiguous`, `Invalid`, `Unknown`) provoca el descarte inmediato (`Optional.empty()`).
+1. **Aislamiento Transaccional de Red**:
+   - `IntentFallback.normalize` se ejecuta fuera de cualquier contexto transaccional (`TransactionSynchronizationManager.isActualTransactionActive() == false`).
+   - `bot.process(...)` abre su propia transacción de corta duración únicamente para la mutación SQLite en `Catalog`.
+2. **Inmunidad de Inyección en URLs de Imagen**:
+   - La URL de la imagen siempre proviene del pipeline de carga local gestionado por `MediaService` / `PhotoProcessor`, nunca del contenido devuelto por el modelo.
+3. **No-mutación sin confirmación explícita**:
+   - La normalización exitosa de un comando no ejecuta la acción en base de datos; únicamente coloca a la FSM en `AWAITING_CONFIRMATION`. Solo un mensaje posterior `"si"` muta el catálogo.
+4. **Aislamiento entre Sesiones A/B**:
+   - Las sesiones concurrentes no comparten estado, emisores SSE ni borradores.
 
 ---
 
-## 5. Arquitectura de Integración Futura (Post-Issue #6)
+## 5. Estrategia de Pruebas de Integración (`IntentFallbackApiTest.java`)
 
-En el futuro gate de integración, cuando la rama con SSE #6 se encuentre consolidada en `main` o estabilizada, `Api.java` o el controlador orquestador invocará `IntentFallback` bajo las siguientes condiciones exclusivas:
-
-```text
-Condiciones para activar IntentFallback:
-  1. Estado de la sesión es IDLE.
-  2. No hay borrador pendiente (pendingDraft == null).
-  3. parser.extractControl(text, photo) es BotModel.None.
-  4. parser.interpret(text, photo, products, null) retorna BotModel.Unknown.
-```
-
-Si el resultado del parser determinista es `Complete`, `NeedsDetails`, `Ambiguous` o `Invalid`, o si existe una señal de control (`Confirm`, `Cancel`, `Undo`, `Correction`), **no se consulta al LLM**. La invocación previa se ejecuta fuera de cualquier transacción `@Transactional`.
-
----
-
-## 6. Plan de Pruebas Deterministas (`IntentFallbackTest.java`)
-
-La suite de pruebas debe ser 100% determinista, aislada y sin consumo de cuota ni claves reales:
-1. **Casos Exitosos de Normalización**:
-   - `CREATE`: texto con frase desordenada ("me gustaria agregar mate de algarrobo por quince mil pesos"), imagen válida y catálogo activo -> devuelve comando canónico `"Publicá mate de algarrobo a 15000 pesos"`.
-   - `PRICE`: frase coloquial ("a la pieza 2 ponela en 20000"), pieza 2 activa -> devuelve comando canónico `"A la número 2 subila a 20000 pesos"`.
-   - `IMAGE`: frase con foto adjunta ("actualizame la foto de la pieza 3"), imagen válida -> devuelve comando canónico `"Cambiá la foto de la pieza 3"`.
-   - `SOLD`: frase coloquial ("anotame que la 4 se vendio"), pieza 4 activa -> devuelve comando canónico `"Ya vendí la pieza 4"`.
-2. **Defensas Anti-Alucinación**:
-   - Modelo inventa título no presente en el texto original -> `Optional.empty()`.
-   - Modelo inventa precio o número no presente en el texto original -> `Optional.empty()`.
-   - Modelo inventa URL de imagen en el payload -> descartado (se usa exclusivamente el parámetro `image`).
-3. **Validación de Destino y Catálogo**:
-   - Referencia a pieza inexistente en catálogo -> `Optional.empty()`.
-   - Referencia a pieza ya vendida (`sold == true`) -> `Optional.empty()`.
-   - Mensaje con múltiples referencias ambiguas a piezas -> `Optional.empty()`.
-4. **Validación de Sintaxis JSON y Estructura**:
-   - Claves duplicadas en JSON -> `Optional.empty()`.
-   - Propiedades desconocidas en JSON -> `Optional.empty()`.
-   - Coerción de tipos (número en vez de string en `priceEvidence` u `operation`) -> `Optional.empty()`.
-   - Caracteres trailing tras el JSON -> `Optional.empty()`.
-5. **Inmunidad de Controles Conversacionales**:
-   - Entrada `"si"`, `"confirmo"`, `"dale"` -> `Optional.empty()`.
-   - Entrada `"no"`, `"cancela"` -> `Optional.empty()`.
-   - Entrada `"deshacer"`, `"me equivoque"` -> `Optional.empty()`.
-6. **Resiliencia ante Fallos de Infraestructura**:
-   - Clave `groq.api.key` nula o vacía -> `Optional.empty()`, cero llamadas HTTP.
-   - Respuestas HTTP 401, 429, 500, o timeout de lectura -> `Optional.empty()`.
+Se implementan pruebas HTTP de integración con `MockMvc` verificando:
+1. **Flujo completo de normalización con confirmación**:
+   - Envío de comando coloquial no reconocido por la gramática estándar con foto adjunta.
+   - Fallback propone comando canónico `Publicá ... a ... pesos`.
+   - Verificación de que la FSM responde pidiendo confirmación (`AWAITING_CONFIRMATION`) y el catálogo aún **no** se modificó.
+   - Verificación de que `TransactionSynchronizationManager.isActualTransactionActive()` fue `false` durante la llamada al proveedor.
+   - Envío posterior de `"si"`: confirma la acción, muta el catálogo y retorna a `IDLE` sin una segunda llamada al proveedor.
+2. **No invocación al LLM en comandos deterministas o de control**:
+   - Comandos directos (`Publicá ...`), controles (`si`, `no`, `deshacer`) y estados pendientes no invocan a `IntentFallback`.
+3. **Degradación elegante ante fallos**:
+   - Simulación de error HTTP 500, timeout o JSON corrupto del LLM: el endpoint responde 200 con el mensaje nativo de desconocimiento del bot ("No entendí qué querés hacer"), sin exponer fallas técnicas.
+4. **Sesiones A/B concurrentes**:
+   - La normalización en la sesión A no interfiere con la sesión B.
