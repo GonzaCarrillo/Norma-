@@ -260,8 +260,13 @@ public class CatalogRepositoryTest {
                 assertThrows(SQLException.class, () -> st.execute("UPDATE products SET price=9999 WHERE session_id='DEFAULT' AND piece_number=1"));
                 assertThrows(SQLException.class, () -> st.execute("DELETE FROM products WHERE session_id='DEFAULT' AND piece_number=1"));
 
-                // Intentar actualizar session_id de un producto existente hacia DEFAULT debe fallar
-                assertThrows(SQLException.class, () -> st.execute("UPDATE products SET session_id='DEFAULT' WHERE session_id='" + normalSess + "' AND piece_number=1"));
+                // Intentar actualizar session_id de un producto existente hacia DEFAULT debe fallar por trigger y no por UNIQUE
+                // Usamos piece_number=999 (numero libre en DEFAULT) para aislar la guarda protect_default_products_update
+                st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + normalSess + "', 999, 'P999', 10000, '/999.webp', 0)");
+                SQLException updateEx = assertThrows(SQLException.class, () ->
+                        st.execute("UPDATE products SET session_id='DEFAULT' WHERE session_id='" + normalSess + "' AND piece_number=999"));
+                assertTrue(updateEx.getMessage().contains("DEFAULT products are immutable"),
+                        "Debe fallar por la guarda protect_default_products_update: " + updateEx.getMessage());
             }
 
             // Comparacion integral final de DEFAULT: debe permanecer 100% identico al original
@@ -485,7 +490,11 @@ public class CatalogRepositoryTest {
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("UNKNOWN", 1, null, null, null)));
 
-            // Validaciones de dominio en Java y SQL constraints
+            // Capturar estado completo antes de pruebas de fallo
+            List<Catalog.Product> prodsBeforeErrors = catalog.all(sess);
+            Catalog.Session sessBeforeErrors = catalog.session(sess);
+
+            // Intentos fallidos de apply por dominio no deben alterar el catalogo ni la sesion
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("PRICE", 1, null, 0, null)));
             assertThrows(IllegalArgumentException.class, () ->
@@ -493,7 +502,17 @@ public class CatalogRepositoryTest {
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("IMAGE", 1, null, null, "   ")));
 
-            // SQL directo contra CHECK constraints
+            // Verificar igualdad completa tras fallos de apply
+            List<Catalog.Product> prodsAfterApplyErrors = catalog.all(sess);
+            assertEquals(prodsBeforeErrors.size(), prodsAfterApplyErrors.size());
+            for (int i = 0; i < prodsBeforeErrors.size(); i++) {
+                assertEquals(prodsBeforeErrors.get(i).pieceNumber(), prodsAfterApplyErrors.get(i).pieceNumber());
+                assertEquals(prodsBeforeErrors.get(i).price(), prodsAfterApplyErrors.get(i).price());
+                assertEquals(prodsBeforeErrors.get(i).imageUrl(), prodsAfterApplyErrors.get(i).imageUrl());
+                assertEquals(prodsBeforeErrors.get(i).sold(), prodsAfterApplyErrors.get(i).sold());
+            }
+
+            // SQL directo contra CHECK constraints, UNIQUE duplicado y tipos no numericos
             assertThrows(Exception.class, () ->
                     db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, 99, 'P99', 0, '/img.webp', 0)").param(sess).update());
             assertThrows(Exception.class, () ->
@@ -504,11 +523,21 @@ public class CatalogRepositoryTest {
                     db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, 99, 'P99', 10000, '/img.webp', 2)").param(sess).update());
             assertThrows(Exception.class, () ->
                     db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, 99, 'P99', 15.5, '/img.webp', 0)").param(sess).update());
+            assertThrows(Exception.class, () ->
+                    db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, 99, 'P99', 'no_numeric', '/img.webp', 0)").param(sess).update());
+            assertThrows(Exception.class, () ->
+                    db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, 1, 'P1_DUP', 10000, '/img.webp', 0)").param(sess).update(),
+                    "Numero de pieza duplicado en la misma sesion debe fallar por UNIQUE");
+            assertThrows(Exception.class, () ->
+                    db.sql("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES(?, -1, 'P_NEG', 10000, '/img.webp', 0)").param(sess).update(),
+                    "Numero de pieza negativo debe fallar por CHECK");
 
-            // Limite maximo de contador (2147483647) falla sin overflow
+            // Limite maximo de contador (2147483647) falla sin overflow y conserva estado
             db.sql("UPDATE sessions SET next_number=2147483647 WHERE id=?").param(sess).update();
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("CREATE", null, "Overflow", 1000, "/img.webp")));
+            assertEquals(2147483647, catalog.session(sess).nextNumber(), "next_number no debe cambiar tras fallo de agotamiento");
+            assertEquals(prodsBeforeErrors.size(), catalog.all(sess).size(), "Total de piezas debe conservarse intacto tras fallo");
         });
     }
 
@@ -634,11 +663,37 @@ public class CatalogRepositoryTest {
             // Comprobar que reset fallido no borro las piezas de A ni altero contador ni borrador
             List<Catalog.Product> prodsAAfterResetFail = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id=? ORDER BY piece_number").param(sessA).query(Catalog.Product.class).list();
             assertEquals(8, prodsAAfterResetFail.size(), "Las piezas originales de A no deben borrarse parcialmente tras reset fallido");
+            for (int i = 0; i < 8; i++) {
+                assertEquals(prodsABefore.get(i).pieceNumber(), prodsAAfterResetFail.get(i).pieceNumber());
+                assertEquals(prodsABefore.get(i).title(), prodsAAfterResetFail.get(i).title());
+                assertEquals(prodsABefore.get(i).price(), prodsAAfterResetFail.get(i).price());
+                assertEquals(prodsABefore.get(i).imageUrl(), prodsAAfterResetFail.get(i).imageUrl());
+                assertEquals(prodsABefore.get(i).sold(), prodsAAfterResetFail.get(i).sold());
+            }
             Catalog.Session sAAfterResetFail = catalog.session(sessA);
             assertEquals(sABefore.nextNumber(), sAAfterResetFail.nextNumber(), "next_number no debe cambiar tras reset fallido");
             assertEquals(sABefore.state(), sAAfterResetFail.state(), "state no debe cambiar tras reset fallido");
             assertEquals(sABefore.pending(), sAAfterResetFail.pending(), "pending draft no debe limpiarse tras reset fallido");
+            assertEquals(sABefore.tempImage(), sAAfterResetFail.tempImage(), "tempImage no debe limpiarse tras reset fallido");
             assertEquals(sABefore.snapshot(), sAAfterResetFail.snapshot(), "snapshot no debe limpiarse tras reset fallido");
+
+            // Subcaso 6: reset exitoso limpia por completo state, pending, temp_image, snapshot y restaura piezas exactas de seed
+            catalog.reset(sessA);
+            Catalog.Session sAAfterResetSuccess = catalog.session(sessA);
+            assertEquals("IDLE", sAAfterResetSuccess.state(), "state debe ser IDLE tras reset exitoso");
+            assertNull(sAAfterResetSuccess.pending(), "pending debe ser null tras reset exitoso");
+            assertNull(sAAfterResetSuccess.tempImage(), "tempImage debe ser null tras reset exitoso");
+            assertNull(sAAfterResetSuccess.snapshot(), "snapshot debe ser null tras reset exitoso");
+            assertEquals(sABefore.nextNumber(), sAAfterResetSuccess.nextNumber(), "next_number monótono debe mantenerse");
+            List<Catalog.Product> prodsAAfterResetSuccess = catalog.all(sessA);
+            assertEquals(8, prodsAAfterResetSuccess.size());
+            for (int i = 0; i < 8; i++) {
+                assertEquals(prodsABefore.get(i).pieceNumber(), prodsAAfterResetSuccess.get(i).pieceNumber());
+                assertEquals(prodsABefore.get(i).title(), prodsAAfterResetSuccess.get(i).title());
+                assertEquals(prodsABefore.get(i).price(), prodsAAfterResetSuccess.get(i).price());
+                assertEquals(prodsABefore.get(i).imageUrl(), prodsAAfterResetSuccess.get(i).imageUrl());
+                assertFalse(prodsAAfterResetSuccess.get(i).sold(), "sold debe ser false tras reset");
+            }
         });
     }
 

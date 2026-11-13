@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -252,10 +253,94 @@ public class CatalogMigrationTest {
             // Eliminar trigger de proteccion temporalmente solo para simular corrupcion de semilla
             st.execute("DROP TRIGGER protect_default_products_update");
             st.execute("UPDATE products SET price=99999 WHERE session_id='DEFAULT' AND piece_number=1");
-            // Reinstalar trigger original pero con datos alterados
-            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE OF session_id, piece_number ON products WHEN OLD.session_id = 'DEFAULT' OR NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'La sesión DEFAULT es inmutable'); END;");
+            // Reinstalar exactamente el trigger canonico original (aislando la semilla alterada sin alterar el trigger)
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE ON products WHEN OLD.session_id = 'DEFAULT' OR NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be modified'); END");
         }
         assertThrows(IllegalStateException.class, () -> initAlt.initialize(), "v2 con semilla DEFAULT alterada debe fallar sin reparar silenciosamente");
+
+        // Caso F: C1 - Trigger con condición 'default' en minúscula (homónimo inoperante para BINARY)
+        Path dbPathLit = tempDir.resolve("test_trigger_literal.db");
+        SQLiteDataSource dsLit = new SQLiteDataSource();
+        dsLit.setUrl("jdbc:sqlite:" + dbPathLit.toAbsolutePath());
+        CatalogDatabaseInitializer initLit = new CatalogDatabaseInitializer(dsLit);
+        initLit.initialize();
+        try (Connection conn = dsLit.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("DROP TRIGGER protect_default_products_update");
+            // Instalar trigger homonimo pero con 'default' en minuscula
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE ON products WHEN OLD.session_id = 'default' OR NEW.session_id = 'default' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be modified'); END");
+        }
+        assertThrows(IllegalStateException.class, () -> initLit.initialize(), "v2 con trigger con literal 'default' en minuscula debe fallar");
+
+        // Caso G: C2 - Esquema sin CHECK constraints (aislado, manteniendo columnas, PK y FK)
+        Path dbPathNoCheck = tempDir.resolve("test_no_check.db");
+        SQLiteDataSource dsNoCheck = new SQLiteDataSource();
+        dsNoCheck.setUrl("jdbc:sqlite:" + dbPathNoCheck.toAbsolutePath());
+        try (Connection conn = dsNoCheck.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("PRAGMA user_version = 2");
+            st.execute("CREATE TABLE sessions (\n" +
+                    "    id TEXT NOT NULL PRIMARY KEY,\n" +
+                    "    state TEXT NOT NULL DEFAULT 'IDLE',\n" +
+                    "    pending TEXT,\n" +
+                    "    temp_image TEXT,\n" +
+                    "    snapshot TEXT,\n" +
+                    "    next_number INTEGER NOT NULL DEFAULT 9,\n" +
+                    "    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n" +
+                    ")");
+            st.execute("CREATE TABLE products (\n" +
+                    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
+                    "    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT ON UPDATE RESTRICT,\n" +
+                    "    piece_number INTEGER NOT NULL,\n" +
+                    "    title TEXT NOT NULL,\n" +
+                    "    price INTEGER NOT NULL,\n" +
+                    "    image_url TEXT NOT NULL,\n" +
+                    "    sold INTEGER NOT NULL DEFAULT 0,\n" +
+                    "    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n" +
+                    "    UNIQUE(session_id, piece_number)\n" +
+                    ")");
+            // Insertar semilla canónica y los 6 triggers canónicos
+            st.execute("INSERT INTO sessions(id, state, next_number) VALUES('DEFAULT', 'IDLE', 9)");
+            for (int i = 1; i <= 8; i++) {
+                st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) VALUES(" + i + ", 'DEFAULT', " + i + ", 'P" + i + "', 10000, '/img.webp', 0)");
+            }
+            // Triggers
+            st.execute("CREATE TRIGGER protect_default_sessions_insert BEFORE INSERT ON sessions WHEN NEW.id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT session is immutable and cannot be inserted'); END");
+            st.execute("CREATE TRIGGER protect_default_sessions_update BEFORE UPDATE ON sessions WHEN OLD.id = 'DEFAULT' OR NEW.id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT session is immutable and cannot be modified'); END");
+            st.execute("CREATE TRIGGER protect_default_sessions_delete BEFORE DELETE ON sessions WHEN OLD.id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT session is immutable and cannot be deleted'); END");
+            st.execute("CREATE TRIGGER protect_default_products_insert BEFORE INSERT ON products WHEN NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be inserted'); END");
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE ON products WHEN OLD.session_id = 'DEFAULT' OR NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be modified'); END");
+            st.execute("CREATE TRIGGER protect_default_products_delete BEFORE DELETE ON products WHEN OLD.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be deleted'); END");
+        }
+        CatalogDatabaseInitializer initNoCheck = new CatalogDatabaseInitializer(dsNoCheck);
+        assertThrows(IllegalStateException.class, () -> initNoCheck.initialize(), "v2 sin CHECK constraints contractuales debe ser rechazado en arranque");
+
+        // Caso H: C2 - products con UNIQUE parcial (WHERE piece_number IS NOT NULL) debe fallar
+        Path dbPathPartIdx = tempDir.resolve("test_partial_unique.db");
+        SQLiteDataSource dsPartIdx = new SQLiteDataSource();
+        dsPartIdx.setUrl("jdbc:sqlite:" + dbPathPartIdx.toAbsolutePath());
+        CatalogDatabaseInitializer initPart = new CatalogDatabaseInitializer(dsPartIdx);
+        initPart.initialize();
+        try (Connection conn = dsPartIdx.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("DROP TABLE products");
+            st.execute("CREATE TABLE products (\n" +
+                    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
+                    "    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT ON UPDATE RESTRICT,\n" +
+                    "    piece_number INTEGER NOT NULL CHECK(typeof(piece_number)='integer' AND piece_number BETWEEN 1 AND 2147483646),\n" +
+                    "    title TEXT NOT NULL CHECK(length(trim(title))>0),\n" +
+                    "    price INTEGER NOT NULL CHECK(typeof(price)='integer' AND price BETWEEN 1 AND 2147483647),\n" +
+                    "    image_url TEXT NOT NULL CHECK(length(trim(image_url))>0),\n" +
+                    "    sold INTEGER NOT NULL DEFAULT 0 CHECK(typeof(sold)='integer' AND sold IN (0,1)),\n" +
+                    "    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n" +
+                    ")");
+            st.execute("CREATE UNIQUE INDEX idx_products_partial ON products(session_id, piece_number) WHERE session_id IS NOT NULL");
+            // Reinstalar triggers
+            st.execute("CREATE TRIGGER protect_default_products_insert BEFORE INSERT ON products WHEN NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be inserted'); END");
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE ON products WHEN OLD.session_id = 'DEFAULT' OR NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be modified'); END");
+            st.execute("CREATE TRIGGER protect_default_products_delete BEFORE DELETE ON products WHEN OLD.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be deleted'); END");
+        }
+        assertThrows(IllegalStateException.class, () -> initPart.initialize(), "v2 con UNIQUE index parcial debe ser rechazado");
 
         // Caso F: base v2 sin foreign keys ni check constraints (estructura DDL alterada)
         Path dbPathNoFK = tempDir.resolve("test_no_fk.db");
@@ -321,13 +406,20 @@ public class CatalogMigrationTest {
         }
 
         // Inyectar fallo en 'PRAGMA quick_check' (que ocurre post-copia y antes de PRAGMA user_version=2 y commit)
-        javax.sql.DataSource dsFailing = new TestFailingDataSource(dsRaw, "PRAGMA quick_check");
+        TestFailingDataSource dsFailing = new TestFailingDataSource(dsRaw, "PRAGMA quick_check");
         CatalogDatabaseInitializer initFail = new CatalogDatabaseInitializer(dsFailing);
 
-        // La ejecucion de migracion debe fallar
-        assertThrows(IllegalStateException.class, () -> initFail.initialize());
+        // La ejecucion de migracion debe fallar por el fallo inyectado en quick_check
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> initFail.initialize());
+        assertTrue(dsFailing.isFailReached(), "La inyeccion en PRAGMA quick_check debio ser alcanzada efectivamente");
+        assertTrue(ex.getMessage().contains("quick_check") || (ex.getCause() != null && ex.getCause().getMessage().contains("quick_check")),
+                "La excepcion debe deberse al fallo inyectado en quick_check: " + ex.getMessage());
 
-        // Verificar rollback total de la base de datos original
+        // Verificar que sobre LA MISMA conexion fisica cuyo migrador fallo, PRAGMA foreign_keys fue restaurado a ON en finally antes de cerrarla
+        assertNotNull(dsFailing.getFkOnFailingConnection(), "Debe haberse capturado foreign_keys en la conexion fallida antes de cerrar");
+        assertEquals(1, dsFailing.getFkOnFailingConnection(), "PRAGMA foreign_keys debio ser 1 (ON) en la conexion del migrador tras el rollback");
+
+        // Verificar rollback total de la base de datos original desde nueva conexion
         try (Connection conn = dsRaw.getConnection()) {
             try (Statement st = conn.createStatement()) {
                 // user_version debe seguir siendo 0
@@ -423,7 +515,7 @@ public class CatalogMigrationTest {
             }
         }
 
-        // Caso F: Legacy con sequence historica superior a ids vivos (F3)
+        // Caso F: Legacy con sequence historica superior a ids vivos (F3), casos sin productos, con DEFAULT y segundo arranque
         Path dbPathSeq = tempDir.resolve("test_seq_high.db");
         SQLiteDataSource dsSeq = new SQLiteDataSource();
         dsSeq.setUrl("jdbc:sqlite:" + dbPathSeq.toAbsolutePath());
@@ -441,11 +533,74 @@ public class CatalogMigrationTest {
         }
         CatalogDatabaseInitializer initSeq = new CatalogDatabaseInitializer(dsSeq);
         assertDoesNotThrow(() -> initSeq.initialize());
+        long seqAfterMigrate = 0;
         try (Connection conn = dsSeq.getConnection();
              Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT seq FROM sqlite_sequence WHERE name='products'")) {
                 assertTrue(rs.next());
-                assertTrue(rs.getLong(1) >= 1000, "sqlite_sequence.products debe preservar el maximo historico (>=1000)");
+                seqAfterMigrate = rs.getLong(1);
+                assertTrue(seqAfterMigrate >= 1000, "sqlite_sequence.products debe preservar el maximo historico (>=1000)");
+            }
+        }
+        // Segundo arranque sobre v2 no debe alterar sqlite_sequence
+        assertDoesNotThrow(() -> initSeq.initialize());
+        try (Connection conn = dsSeq.getConnection();
+             Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT seq FROM sqlite_sequence WHERE name='products'")) {
+                assertTrue(rs.next());
+                assertEquals(seqAfterMigrate, rs.getLong(1), "Segundo arranque no debe alterar el valor historico de sqlite_sequence");
+            }
+        }
+
+        // Caso G: F2 - Fixtures con indice de usuario extra, vista dependiente, tipos/PK/defaults desconocidos
+        Path dbPathExtraObj = tempDir.resolve("test_extra_view_index.db");
+        SQLiteDataSource dsExtraObj = new SQLiteDataSource();
+        dsExtraObj.setUrl("jdbc:sqlite:" + dbPathExtraObj.toAbsolutePath());
+        try (Connection conn = dsExtraObj.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                st.execute("CREATE INDEX idx_custom_prod ON products(title)");
+            }
+        }
+        CatalogDatabaseInitializer initIdx = new CatalogDatabaseInitializer(dsExtraObj);
+        assertThrows(IllegalStateException.class, () -> initIdx.initialize(), "Legacy con indice de usuario no estandar debe abortar");
+
+        Path dbPathView = tempDir.resolve("test_extra_view.db");
+        SQLiteDataSource dsView = new SQLiteDataSource();
+        dsView.setUrl("jdbc:sqlite:" + dbPathView.toAbsolutePath());
+        try (Connection conn = dsView.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                st.execute("CREATE VIEW view_products AS SELECT id, title FROM products");
+            }
+        }
+        CatalogDatabaseInitializer initView = new CatalogDatabaseInitializer(dsView);
+        assertThrows(IllegalStateException.class, () -> initView.initialize(), "Legacy con vista dependiente debe abortar");
+
+        // Caso H: F4 - Variantes de next_number invalido: texto, negativo, fuera de rango
+        List<String> badCounters = List.of(
+                "'NaN'",
+                "-5",
+                "2147483648" // out of integer range
+        );
+        for (String badVal : badCounters) {
+            Path dbPathBadVal = tempDir.resolve("test_bad_val_" + badVal.replaceAll("[^a-zA-Z0-9]", "_") + ".db");
+            SQLiteDataSource dsBadVal = new SQLiteDataSource();
+            dsBadVal.setUrl("jdbc:sqlite:" + dbPathBadVal.toAbsolutePath());
+            try (Connection conn = dsBadVal.getConnection()) {
+                executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+                try (Statement st = conn.createStatement()) {
+                    st.execute("INSERT INTO sessions(id, state, next_number) VALUES('sess_bad', 'IDLE', " + badVal + ")");
+                }
+            }
+            CatalogDatabaseInitializer initBadVal = new CatalogDatabaseInitializer(dsBadVal);
+            assertThrows(IllegalStateException.class, () -> initBadVal.initialize(), "next_number=" + badVal + " debe abortar la migracion");
+            try (Connection conn = dsBadVal.getConnection();
+                 Statement st = conn.createStatement()) {
+                try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                    assertTrue(rs.next());
+                    assertEquals(0, rs.getInt(1), "user_version debe ser 0 tras abortar valor invalido: " + badVal);
+                }
             }
         }
     }
@@ -453,25 +608,61 @@ public class CatalogMigrationTest {
     private static class TestFailingDataSource implements javax.sql.DataSource {
         private final javax.sql.DataSource delegate;
         private final String failOnSql;
+        private boolean failReached = false;
+        private Integer fkOnFailingConnection = null;
 
         public TestFailingDataSource(javax.sql.DataSource delegate, String failOnSql) {
             this.delegate = delegate;
             this.failOnSql = failOnSql;
         }
 
-        @Override public Connection getConnection() throws SQLException { return wrap(delegate.getConnection()); }
-        @Override public Connection getConnection(String u, String p) throws SQLException { return wrap(delegate.getConnection(u, p)); }
+        public boolean isFailReached() {
+            return failReached;
+        }
+
+        public Integer getFkOnFailingConnection() {
+            return fkOnFailingConnection;
+        }
+
+        @Override public Connection getConnection() throws SQLException {
+            Connection realConn = delegate.getConnection();
+            return wrap(realConn);
+        }
+        @Override public Connection getConnection(String u, String p) throws SQLException {
+            Connection realConn = delegate.getConnection(u, p);
+            return wrap(realConn);
+        }
 
         private Connection wrap(Connection c) {
             return (Connection) java.lang.reflect.Proxy.newProxyInstance(
                     c.getClass().getClassLoader(),
                     new Class<?>[]{Connection.class},
                     (proxy, method, args) -> {
-                        if ("createStatement".equals(method.getName())) {
-                            Statement st = (Statement) method.invoke(c, args);
-                            return wrapStatement(st);
+                        try {
+                            if ("createStatement".equals(method.getName())) {
+                                Statement st = (Statement) method.invoke(c, args);
+                                return wrapStatement(st);
+                            }
+                            if ("close".equals(method.getName())) {
+                                // Antes de cerrar la conexion que fallo, capturar PRAGMA foreign_keys efectivo
+                                if (failReached && fkOnFailingConnection == null) {
+                                    try (Statement st = c.createStatement();
+                                         ResultSet rs = st.executeQuery("PRAGMA foreign_keys")) {
+                                        if (rs.next()) {
+                                            fkOnFailingConnection = rs.getInt(1);
+                                        }
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                            }
+                            return method.invoke(c, args);
+                        } catch (java.lang.reflect.InvocationTargetException ite) {
+                            Throwable target = ite.getTargetException();
+                            if (target instanceof SQLException se) throw se;
+                            if (target instanceof RuntimeException re) throw re;
+                            if (target instanceof Error err) throw err;
+                            throw new RuntimeException(target);
                         }
-                        return method.invoke(c, args);
                     }
             );
         }
@@ -481,12 +672,21 @@ public class CatalogMigrationTest {
                     st.getClass().getClassLoader(),
                     new Class<?>[]{Statement.class},
                     (proxy, method, args) -> {
-                        if (args != null && args.length > 0 && args[0] instanceof String sql) {
-                            if (failOnSql != null && sql.contains(failOnSql)) {
-                                throw new SQLException("Injected test failure on: " + sql);
+                        try {
+                            if (args != null && args.length > 0 && args[0] instanceof String sql) {
+                                if (failOnSql != null && sql.contains(failOnSql)) {
+                                    failReached = true;
+                                    throw new SQLException("Injected test failure on: " + sql);
+                                }
                             }
+                            return method.invoke(st, args);
+                        } catch (java.lang.reflect.InvocationTargetException ite) {
+                            Throwable target = ite.getTargetException();
+                            if (target instanceof SQLException se) throw se;
+                            if (target instanceof RuntimeException re) throw re;
+                            if (target instanceof Error err) throw err;
+                            throw new RuntimeException(target);
                         }
-                        return method.invoke(st, args);
                     }
             );
         }

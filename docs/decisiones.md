@@ -74,8 +74,8 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 ### D11 — Migrador conservador fail-closed v0→v2 sin dependencias externas
 - **Estado**: Aprobado e implementado en Issue #2.
 - **Contexto**: Migración segura de esquemas legacy sin frameworks pesados (como Flyway o JPA) que alterarían el monolito.
-- **Decisión**: Implementación de `CatalogDatabaseInitializer` que coordina la inspección y migración con `PRAGMA user_version=2`. La migración reconstruye tablas con el patrón seguro `create-new -> copy -> drop-old -> rename-new`, prevalidando tipos enteros, constraints, rangos y ausencia de huérfanos antes de modificar datos. Si se detecta corrupción o un esquema desconocido, el inicializador falla de manera cerrada (fail-closed) con rollback atómico, preservando el estado previo intacto.
-- **Consecuencias**: Actualización atómica y libre de fallos silenciosos, con integridad relacional validada mediante `foreign_key_check` y `quick_check`.
+- **Decisión**: Implementación de `CatalogDatabaseInitializer` que coordina la inspección y migración con `PRAGMA user_version=2`. La migración reconstruye tablas con el patrón seguro `create-new -> copy -> drop-old -> rename-new`, prevalidando tipos enteros, constraints, rangos y ausencia de huérfanos antes de modificar datos. Si se detecta corrupción o un esquema desconocido, el inicializador revierte la transacción de forma cerrada (fail-closed), preservando los datos relacionales preexistentes y `user_version=0`.
+- **Consecuencias**: Actualización atómica en el ámbito transaccional relacional, con integridad validada mediante `foreign_key_check` y `quick_check`. La durabilidad física ante cortes de energía o caídas de hardware depende de las políticas del sistema de archivos y exige backups previos al despliegue.
 
 
 ---

@@ -15,10 +15,27 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 @Component("catalogDatabaseInitializer")
 public class CatalogDatabaseInitializer {
 
     private static final Logger log = LoggerFactory.getLogger(CatalogDatabaseInitializer.class);
+
+    private static final Pattern SQL_TOKEN_PATTERN = Pattern.compile("('(?:[^']*(?:''[^']*)*)'|\"(?:[^\"]*)\")|([^'\"\\s(),]+)|([(),])|(\\s+)");
+
+    private static final String V2_SESSIONS_SQL_NORM =
+            "create table sessions(id text not null primary key collate binary check(id='DEFAULT' or(length(id)between 8 and 80 and id not glob '*[^a-zA-Z0-9_-]*')),state text not null default 'IDLE' check(state in('IDLE','AWAITING_DETAILS','AWAITING_CONFIRMATION')),pending text,temp_image text,snapshot text,next_number integer not null default 9 check(typeof(next_number)='integer' and next_number between 9 and 2147483647),updated_at text not null default current_timestamp)";
+
+    private static final String V2_PRODUCTS_SQL_NORM =
+            "create table products(id integer primary key autoincrement,session_id text not null references sessions(id)on delete restrict on update restrict,piece_number integer not null check(typeof(piece_number)='integer' and piece_number between 1 and 2147483646),title text not null check(length(trim(title))>0),price integer not null check(typeof(price)='integer' and price between 1 and 2147483647),image_url text not null check(length(trim(image_url))>0),sold integer not null default 0 check(typeof(sold)='integer' and sold in(0,1)),updated_at text not null default current_timestamp,unique(session_id,piece_number))";
+
+    private static final String LEGACY_SESSIONS_SQL_NORM =
+            "create table sessions(id text primary key,state text not null default 'IDLE',pending text,temp_image text,snapshot text,next_number integer not null default 9)";
+
+    private static final String LEGACY_PRODUCTS_SQL_NORM =
+            "create table products(id integer primary key autoincrement,session_id text not null,piece_number integer not null,title text not null,price integer not null check(price>0),image_url text not null,sold integer not null default 0,unique(session_id,piece_number))";
 
     private static final record ExpectedPiece(int number, String title, int price, String imageUrl) {}
 
@@ -47,11 +64,6 @@ public class CatalogDatabaseInitializer {
             "protect_default_products_delete",
             "CREATE TRIGGER protect_default_products_delete BEFORE DELETE ON products WHEN OLD.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'DEFAULT products are immutable and cannot be deleted'); END"
     );
-
-    private static final String LEGACY_SESSIONS_SQL_NORM =
-            "create table sessions(id text primary key,state text not null default 'idle',pending text,temp_image text, snapshot text,next_number integer not null default 9)";
-    private static final String LEGACY_PRODUCTS_SQL_NORM =
-            "create table products(id integer primary key autoincrement,session_id text not null,piece_number integer not null,title text not null,price integer not null check(price>0),image_url text not null,sold integer not null default 0,unique(session_id,piece_number))";
 
     private final DataSource dataSource;
 
@@ -428,15 +440,27 @@ public class CatalogDatabaseInitializer {
             throw new IllegalStateException("sessions.id definicion incorrecta");
         }
         ColInfo state = cols.get("state");
-        if (!"TEXT".equalsIgnoreCase(state.type()) || !state.notNull() || state.pk() != 0) {
+        if (!"TEXT".equalsIgnoreCase(state.type()) || !state.notNull() || state.pk() != 0 || !"'IDLE'".equals(state.defVal())) {
             throw new IllegalStateException("sessions.state definicion incorrecta");
         }
+        ColInfo pending = cols.get("pending");
+        if (!"TEXT".equalsIgnoreCase(pending.type()) || pending.notNull() || pending.pk() != 0) {
+            throw new IllegalStateException("sessions.pending definicion incorrecta");
+        }
+        ColInfo tempImg = cols.get("temp_image");
+        if (!"TEXT".equalsIgnoreCase(tempImg.type()) || tempImg.notNull() || tempImg.pk() != 0) {
+            throw new IllegalStateException("sessions.temp_image definicion incorrecta");
+        }
+        ColInfo snapshot = cols.get("snapshot");
+        if (!"TEXT".equalsIgnoreCase(snapshot.type()) || snapshot.notNull() || snapshot.pk() != 0) {
+            throw new IllegalStateException("sessions.snapshot definicion incorrecta");
+        }
         ColInfo nn = cols.get("next_number");
-        if (!"INTEGER".equalsIgnoreCase(nn.type()) || !nn.notNull() || nn.pk() != 0) {
+        if (!"INTEGER".equalsIgnoreCase(nn.type()) || !nn.notNull() || nn.pk() != 0 || !"9".equals(nn.defVal())) {
             throw new IllegalStateException("sessions.next_number definicion incorrecta");
         }
         ColInfo upd = cols.get("updated_at");
-        if (!"TEXT".equalsIgnoreCase(upd.type()) || !upd.notNull() || upd.pk() != 0) {
+        if (!"TEXT".equalsIgnoreCase(upd.type()) || !upd.notNull() || upd.pk() != 0 || !"CURRENT_TIMESTAMP".equalsIgnoreCase(upd.defVal())) {
             throw new IllegalStateException("sessions.updated_at definicion incorrecta");
         }
     }
@@ -459,13 +483,25 @@ public class CatalogDatabaseInitializer {
         if (!"INTEGER".equalsIgnoreCase(pieceNum.type()) || !pieceNum.notNull() || pieceNum.pk() != 0) {
             throw new IllegalStateException("products.piece_number definicion incorrecta");
         }
+        ColInfo title = cols.get("title");
+        if (!"TEXT".equalsIgnoreCase(title.type()) || !title.notNull() || title.pk() != 0) {
+            throw new IllegalStateException("products.title definicion incorrecta");
+        }
         ColInfo price = cols.get("price");
         if (!"INTEGER".equalsIgnoreCase(price.type()) || !price.notNull() || price.pk() != 0) {
             throw new IllegalStateException("products.price definicion incorrecta");
         }
+        ColInfo img = cols.get("image_url");
+        if (!"TEXT".equalsIgnoreCase(img.type()) || !img.notNull() || img.pk() != 0) {
+            throw new IllegalStateException("products.image_url definicion incorrecta");
+        }
         ColInfo sold = cols.get("sold");
-        if (!"INTEGER".equalsIgnoreCase(sold.type()) || !sold.notNull() || sold.pk() != 0) {
+        if (!"INTEGER".equalsIgnoreCase(sold.type()) || !sold.notNull() || sold.pk() != 0 || !"0".equals(sold.defVal())) {
             throw new IllegalStateException("products.sold definicion incorrecta");
+        }
+        ColInfo upd = cols.get("updated_at");
+        if (!"TEXT".equalsIgnoreCase(upd.type()) || !upd.notNull() || upd.pk() != 0 || !"CURRENT_TIMESTAMP".equalsIgnoreCase(upd.defVal())) {
+            throw new IllegalStateException("products.updated_at definicion incorrecta");
         }
     }
 
@@ -497,6 +533,16 @@ public class CatalogDatabaseInitializer {
              ResultSet rs = st.executeQuery("PRAGMA index_list(products)")) {
             while (rs.next()) {
                 if (rs.getInt("unique") == 1) {
+                    // Verificar que no sea indice parcial (columna 4 'partial' debe ser 0)
+                    int partial = 0;
+                    try {
+                        partial = rs.getInt("partial");
+                    } catch (Exception ignored) {
+                    }
+                    if (partial != 0) {
+                        continue;
+                    }
+
                     String indexName = rs.getString("name");
                     List<String> indexCols = new ArrayList<>();
                     try (Statement st2 = conn.createStatement();
@@ -513,72 +559,86 @@ public class CatalogDatabaseInitializer {
             }
         }
         if (!uniqueFound) {
-            throw new IllegalStateException("UNIQUE(session_id, piece_number) ausente en products");
+            throw new IllegalStateException("UNIQUE(session_id, piece_number) completo y no parcial ausente en products");
         }
     }
 
     private void validateCheckConstraintsFunctional(Connection conn) throws SQLException {
-        // Para verificar que la tabla sessions y products tienen realmente sus CHECK compilados en SQLite
-        // sin romper ninguna transaccion exterior: se utiliza un SAVEPOINT dedicado.
+        // Verificar definición DDL canónica en sqlite_schema
+        try (Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT name, sql FROM sqlite_schema WHERE type='table' AND name IN ('sessions', 'products')")) {
+                int count = 0;
+                while (rs.next()) {
+                    count++;
+                    String name = rs.getString("name");
+                    String sql = normalizeSql(rs.getString("sql"));
+                    if ("sessions".equals(name)) {
+                        if (!sql.equals(V2_SESSIONS_SQL_NORM)) {
+                            throw new IllegalStateException("Definicion DDL de sessions no coincide con el esquema v2 canonico. Encontrado: [" + sql + "], Esperado: [" + V2_SESSIONS_SQL_NORM + "]");
+                        }
+                    } else if ("products".equals(name)) {
+                        if (!sql.equals(V2_PRODUCTS_SQL_NORM)) {
+                            throw new IllegalStateException("Definicion DDL de products no coincide con el esquema v2 canonico. Encontrado: [" + sql + "], Esperado: [" + V2_PRODUCTS_SQL_NORM + "]");
+                        }
+                    }
+                }
+                if (count != 2) {
+                    throw new IllegalStateException("Tablas sessions o products no encontradas en sqlite_schema");
+                }
+            }
+        }
+
+        // Probes funcionales aislados con control positivo y control de causas esperadas
         try (Statement st = conn.createStatement()) {
             st.execute("SAVEPOINT v2_check_validation_sp");
             try {
-                // 1. sessions: CHECK(state IN ('IDLE','AWAITING_DETAILS','AWAITING_CONFIRMATION'))
-                boolean checkStateFailed = false;
-                try {
-                    st.execute("INSERT INTO sessions(id, state) VALUES('valid_sess_1', 'INVALID_STATE')");
-                } catch (SQLException e) {
-                    checkStateFailed = true;
-                }
-                if (!checkStateFailed) throw new IllegalStateException("CHECK(state) ausente o inoperante en sessions");
+                // Control positivo 1: Crear una sesion padre valida
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_1', 'IDLE', 9)");
 
-                // 2. products: CHECK(typeof(price)='integer' AND price BETWEEN 1 AND 2147483647)
-                boolean checkPriceFailed = false;
-                try {
-                    st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_1', 100, 'T', -1, '/img', 0)");
-                } catch (SQLException e) {
-                    checkPriceFailed = true;
-                }
-                if (!checkPriceFailed) throw new IllegalStateException("CHECK(price) ausente o inoperante en products");
+                // Control positivo 2: Insertar un producto valido sobre la sesion padre valida
+                st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 100, 'Pieza Valida', 15000, '/assets/valida.webp', 0)");
 
-                // 3. products: CHECK(typeof(sold)='integer' AND sold IN (0,1))
-                boolean checkSoldFailed = false;
-                try {
-                    st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_1', 100, 'T', 100, '/img', 2)");
-                } catch (SQLException e) {
-                    checkSoldFailed = true;
-                }
-                if (!checkSoldFailed) throw new IllegalStateException("CHECK(sold) ausente o inoperante en products");
+                // Probe 1. sessions: CHECK(id='DEFAULT' OR (length(id) BETWEEN 8 AND 80 AND id NOT GLOB '*[^a-zA-Z0-9_-]*'))
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('short', 'IDLE', 9)", "sessions.id length");
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('bad*char*session', 'IDLE', 9)", "sessions.id characters");
 
-                // 4. products: CHECK(typeof(piece_number)='integer' AND piece_number BETWEEN 1 AND 2147483646)
-                boolean checkPieceNumFailed = false;
-                try {
-                    st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_1', 0, 'T', 100, '/img', 0)");
-                } catch (SQLException e) {
-                    checkPieceNumFailed = true;
-                }
-                if (!checkPieceNumFailed) throw new IllegalStateException("CHECK(piece_number) ausente o inoperante en products");
+                // Probe 2. sessions: CHECK(state IN ('IDLE','AWAITING_DETAILS','AWAITING_CONFIRMATION'))
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_2', 'INVALID_STATE', 9)", "sessions.state");
 
-                // 5. products: CHECK(length(trim(title))>0)
-                boolean checkTitleFailed = false;
-                try {
-                    st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_1', 101, '   ', 100, '/img', 0)");
-                } catch (SQLException e) {
-                    checkTitleFailed = true;
-                }
-                if (!checkTitleFailed) throw new IllegalStateException("CHECK(title) ausente o inoperante en products");
+                // Probe 3. sessions: CHECK(typeof(next_number)='integer' AND next_number BETWEEN 9 AND 2147483647)
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_3', 'IDLE', 0)", "sessions.next_number min");
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_4', 'IDLE', 8)", "sessions.next_number min 8");
 
-                // 6. products: CHECK(length(trim(image_url))>0)
-                boolean checkImgFailed = false;
-                try {
-                    st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_1', 102, 'T', 100, '', 0)");
-                } catch (SQLException e) {
-                    checkImgFailed = true;
-                }
-                if (!checkImgFailed) throw new IllegalStateException("CHECK(image_url) ausente o inoperante en products");
+                // Probe 4. products: CHECK(typeof(piece_number)='integer' AND piece_number BETWEEN 1 AND 2147483646)
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 0, 'T', 100, '/img', 0)", "products.piece_number zero");
+
+                // Probe 5. products: CHECK(length(trim(title))>0)
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 101, '   ', 100, '/img', 0)", "products.title empty");
+
+                // Probe 6. products: CHECK(typeof(price)='integer' AND price BETWEEN 1 AND 2147483647)
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 102, 'T', -1, '/img', 0)", "products.price negative");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 103, 'T', 0, '/img', 0)", "products.price zero");
+
+                // Probe 7. products: CHECK(length(trim(image_url))>0)
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 104, 'T', 100, '   ', 0)", "products.image_url empty");
+
+                // Probe 8. products: CHECK(typeof(sold)='integer' AND sold IN (0,1))
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 105, 'T', 100, '/img', 2)", "products.sold out of range");
             } finally {
                 st.execute("ROLLBACK TO v2_check_validation_sp");
                 st.execute("RELEASE v2_check_validation_sp");
+            }
+        }
+    }
+
+    private static void assertCheckConstraintFails(Statement st, String sql, String constraintDesc) throws SQLException {
+        try {
+            st.execute(sql);
+            throw new IllegalStateException("CHECK constraint ausente o inoperante: " + constraintDesc);
+        } catch (SQLException e) {
+            String msg = e.getMessage();
+            if (msg == null || !msg.contains("CHECK constraint failed")) {
+                throw new IllegalStateException("Sentencia rechazada por motivo ajeno a CHECK (" + constraintDesc + "): " + msg, e);
             }
         }
     }
@@ -670,10 +730,39 @@ public class CatalogDatabaseInitializer {
 
     private static String normalizeSql(String sql) {
         if (sql == null) return "";
-        return sql.replaceAll("(?m)^\\s*--.*$", "")
-                .replaceAll("\\s+", " ")
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        String clean = sql.replaceAll("(?m)^\\s*--.*$", "");
+        Matcher m = SQL_TOKEN_PATTERN.matcher(clean);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String strLit = m.group(1);
+            String word = m.group(2);
+            String punct = m.group(3);
+            String space = m.group(4);
+            if (strLit != null) {
+                if (strLit.startsWith("\"") && strLit.endsWith("\"")) {
+                    String ident = strLit.substring(1, strLit.length() - 1);
+                    if (ident.matches("^[a-zA-Z0-9_]+$")) {
+                        sb.append(ident.toLowerCase(Locale.ROOT));
+                    } else {
+                        sb.append(strLit);
+                    }
+                } else {
+                    sb.append(strLit);
+                }
+            } else if (word != null) {
+                sb.append(word.toLowerCase(Locale.ROOT));
+            } else if (punct != null) {
+                sb.append(punct);
+            } else if (space != null) {
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != ' ' && "(,".indexOf(sb.charAt(sb.length() - 1)) == -1) {
+                    sb.append(' ');
+                }
+            }
+        }
+        String s = sb.toString().trim();
+        s = s.replaceAll("\\s*([(),])\\s*", "$1");
+        s = s.replaceFirst("^create table if not exists ", "create table ");
+        return s.replaceAll(";+$", "").trim();
     }
 
     private void executeSqlScript(Connection conn, String resourcePath) throws SQLException {
