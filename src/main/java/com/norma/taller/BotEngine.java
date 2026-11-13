@@ -292,11 +292,18 @@ public class BotEngine {
                 newTarget = it;
             } else if (corr.value() instanceof String st) {
                 String sNorm = IntentParser.norm(st);
-                Optional<Catalog.Product> match = prods.stream()
+                List<Catalog.Product> matches = prods.stream()
                         .filter(p -> !p.sold() && IntentParser.norm(p.title()).equals(sNorm))
-                        .findFirst();
-                if (match.isPresent()) {
-                    newTarget = match.get().pieceNumber();
+                        .toList();
+                if (matches.size() == 1) {
+                    newTarget = matches.get(0).pieceNumber();
+                } else if (matches.size() > 1) {
+                    List<String> candidateDescs = matches.stream()
+                            .map(p -> describePieceTarget(id, p.pieceNumber()))
+                            .toList();
+                    return reply(id, "Hay varias piezas que coinciden (" + String.join(", ", candidateDescs) + "). Decime el numerito.");
+                } else {
+                    return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
                 }
             }
             if (newTarget != null) {
@@ -562,22 +569,30 @@ public class BotEngine {
                 }
             }
         } else if (corr.field() == BotModel.CorrectionField.TARGET) {
+            List<Catalog.Product> prods = catalog.all(id);
             Integer newTarget = null;
             if (corr.value() instanceof Integer it) {
                 newTarget = it;
             } else if (corr.value() instanceof String st) {
                 String sNorm = IntentParser.norm(st);
-                Optional<Catalog.Product> match = catalog.all(id).stream()
+                List<Catalog.Product> matches = prods.stream()
                         .filter(p -> !p.sold() && IntentParser.norm(p.title()).equals(sNorm))
-                        .findFirst();
-                if (match.isPresent()) {
-                    newTarget = match.get().pieceNumber();
+                        .toList();
+                if (matches.size() == 1) {
+                    newTarget = matches.get(0).pieceNumber();
+                } else if (matches.size() > 1) {
+                    List<String> candidateDescs = matches.stream()
+                            .map(p -> describePieceTarget(id, p.pieceNumber()))
+                            .toList();
+                    return reply(id, "Hay varias piezas que coinciden (" + String.join(", ", candidateDescs) + "). Decime el numerito.");
+                } else {
+                    return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
                 }
             }
             if (newTarget != null) {
                 int nt = newTarget;
                 if (draft.operation() == null || draft.operation() == BotModel.Operation.PRICE || draft.operation() == BotModel.Operation.IMAGE || draft.operation() == BotModel.Operation.SOLD) {
-                    Optional<Catalog.Product> pOpt = catalog.all(id).stream().filter(p -> p.pieceNumber() == nt && !p.sold()).findFirst();
+                    Optional<Catalog.Product> pOpt = prods.stream().filter(p -> p.pieceNumber() == nt && !p.sold()).findFirst();
                     if (pOpt.isPresent()) {
                         BotModel.Operation dop = draft.operation() != null ? draft.operation() : BotModel.Operation.PRICE;
                         updated = switch (dop) {

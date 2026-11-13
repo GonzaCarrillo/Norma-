@@ -409,4 +409,43 @@ public class IntentParserTest {
         assertEquals(1000, parser.price("1 luca"));
         assertEquals(1000, parser.price("una luca"));
     }
+
+    // ========================================================
+    // REGRESIONES EXACTAS AUDITORÍA v1.2 (R2)
+    // ========================================================
+
+    @Test
+    @DisplayName("R2.v1.2: Extracción de precio rechaza tramos y residuos no autorizados antes o después del monto")
+    void testPriceExpressionRejectsResidualChunksBeforeAndAfterValidAmount() {
+        // Residuo no autorizado después del monto válido
+        BotModel.ParseResult r1 = parser.interpret("Cambiá el precio de #2 a 15000 por nada", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r1);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r1).reason());
+
+        // Residuo no autorizado antes del monto válido
+        BotModel.ParseResult r2 = parser.interpret("Cambiá el precio de #2 a nada por 15000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r2);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r2).reason());
+
+        // Control positivo: monto único válido sin residuos produce Complete
+        BotModel.ParseResult r3 = parser.interpret("Cambiá el precio de #2 a 15000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r3);
+        BotModel.ChangePrice cp3 = (BotModel.ChangePrice) ((BotModel.Complete) r3).action();
+        assertEquals(2, cp3.pieceNumber());
+        assertEquals(15000, cp3.newPrice());
+
+        // Control positivo: delimitador 'por' con precio único válido
+        BotModel.ParseResult r4 = parser.interpret("Cambiá el precio de #2 por 15000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r4);
+        BotModel.ChangePrice cp4 = (BotModel.ChangePrice) ((BotModel.Complete) r4).action();
+        assertEquals(2, cp4.pieceNumber());
+        assertEquals(15000, cp4.newPrice());
+
+        // Control positivo: coloquial '15 lucas' tras 'por'
+        BotModel.ParseResult r5 = parser.interpret("Cambiá el precio de #2 por 15 lucas", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r5);
+        BotModel.ChangePrice cp5 = (BotModel.ChangePrice) ((BotModel.Complete) r5).action();
+        assertEquals(2, cp5.pieceNumber());
+        assertEquals(15000, cp5.newPrice());
+    }
 }

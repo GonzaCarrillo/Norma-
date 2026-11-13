@@ -662,7 +662,8 @@ public class IntentParser {
                     // Verificar que no sea un prefijo truncado de una frase numérica más larga
                     if (len < words.length) {
                         String nextWord = words[len];
-                        if (nextWord.equals("y") || UNITS.containsKey(nextWord) || TENS.containsKey(nextWord)
+                        if ((nextWord.equals("y") && len + 1 < words.length && UNITS.containsKey(words[len + 1]))
+                                || UNITS.containsKey(nextWord) || TENS.containsKey(nextWord)
                                 || HUNDREDS.containsKey(nextWord) || nextWord.matches("\\d+")) {
                             continue;
                         }
@@ -735,12 +736,19 @@ public class IntentParser {
             s = s.replaceAll("(?i)" + Pattern.quote(span), " ");
         }
 
-        // Buscar todos los delimitadores entre "\s+a\s+", "\s+por\s+", o "\bprecio\s+"
+        // Buscar todos los delimitadores entre "\s+a\s+", "\s+por\s+", o "\bprecio\s+" (excluyendo "el precio", "del precio", etc.)
         Pattern delimPattern = Pattern.compile("(?:\\s+(?:a|por)\\s+|\\bprecio\\s+)", Pattern.CASE_INSENSITIVE);
         Matcher m = delimPattern.matcher(s);
         List<Integer> delimEnds = new ArrayList<>();
         List<Integer> delimStarts = new ArrayList<>();
         while (m.find()) {
+            String matched = m.group();
+            if (matched.toLowerCase().contains("precio")) {
+                String before = s.substring(0, m.start()).trim().toLowerCase();
+                if (before.endsWith("el") || before.endsWith("del") || before.endsWith("al") || before.endsWith("su")) {
+                    continue; // Es parte del sustantivo "el precio", no un delimitador de importe
+                }
+            }
             delimStarts.add(m.start());
             delimEnds.add(m.end());
         }
@@ -750,23 +758,23 @@ public class IntentParser {
             return result;
         }
 
-        List<String> candidateChunks = new ArrayList<>();
+        List<String> chunks = new ArrayList<>();
         for (int i = 0; i < delimEnds.size(); i++) {
             int start = delimEnds.get(i);
             int end = (i + 1 < delimStarts.size()) ? delimStarts.get(i + 1) : s.length();
             String chunk = s.substring(start, end).trim();
-            if (isPriceCandidate(chunk)) {
-                candidateChunks.add(chunk);
+            if (!chunk.isEmpty()) {
+                chunks.add(chunk);
             }
         }
 
-        if (candidateChunks.size() > 1) {
+        if (chunks.size() > 1) {
             result.multipleAmounts = true;
             return result;
         }
 
-        if (candidateChunks.size() == 1) {
-            String singleChunk = candidateChunks.get(0);
+        if (chunks.size() == 1) {
+            String singleChunk = chunks.get(0);
             // Verificar si el chunk único contiene más de un número o intento (ej "15000 20000" o "15000 o 20000")
             Matcher digitGroups = Pattern.compile("(?<![\\d.,])\\d+(?![\\d.,])").matcher(singleChunk);
             long count = digitGroups.results().count();

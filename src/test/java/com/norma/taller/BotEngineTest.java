@@ -931,4 +931,114 @@ public class BotEngineTest {
         assertEquals("IDLE", catalog.session(SESS).state());
         assertEquals(22000, catalog.all(SESS).get(1).price());
     }
+
+    // ========================================================
+    // REGRESIONES EXACTAS AUDITORÍA v1.2 (R1)
+    // ========================================================
+
+    @Test
+    @DisplayName("R1.v1.2: Corrección por nombre duplicado en CONFIRMATION aclara candidatos y no elige la primera pieza")
+    void testDuplicateNameCorrectionInConfirmationRequiresPieceNumberClarification() {
+        // En seed: #3 es 'Taza panzona' a 12000.
+        // Insertamos #9 con el mismo título 'Taza panzona' a 9000
+        catalog.insert(SESS, 9, "Taza panzona", 9000, "taza9.webp", false);
+        List<Catalog.Product> prods = catalog.all(SESS);
+        assertEquals(9, prods.size());
+        assertEquals("Taza panzona", prods.get(2).title()); // #3
+        assertEquals(12000, prods.get(2).price());
+        assertEquals("Taza panzona", prods.get(8).title()); // #9
+        assertEquals(9000, prods.get(8).price());
+
+        // Paso 1: Iniciar cambio de precio sobre #2
+        BotEngine.Reply r1 = bot.process(SESS, "Cambiá el precio de #2 a 25000", null);
+        assertEquals("AWAITING_CONFIRMATION", r1.state());
+        assertTrue(r1.replyText().contains("#2") && r1.replyText().contains("25.000"));
+
+        // Paso 2: Corrección con título duplicado 'Taza panzona'
+        BotEngine.Reply r2 = bot.process(SESS, "no, la pieza Taza panzona", null);
+        // Debe pedir aclaración entre candidatos y NO resolver a #3 arbitrariamente
+        assertEquals("AWAITING_CONFIRMATION", r2.state());
+        assertTrue(r2.replyText().contains("Hay varias piezas que coinciden"));
+        assertTrue(r2.replyText().contains("#3 (Taza panzona)"));
+        assertTrue(r2.replyText().contains("#9 (Taza panzona)"));
+        assertTrue(r2.replyText().contains("Decime el numerito"));
+
+        // Verificar que el borrador y snapshot no se mutaron a #3
+        Catalog.Session sAfterAmb = catalog.session(SESS);
+        BotModel.Action pendingAction = codec.decodePending(sAfterAmb.pending(), SESS, sAfterAmb.tempImage()).orElseThrow().action();
+        assertInstanceOf(BotModel.ChangePrice.class, pendingAction);
+        assertEquals(2, ((BotModel.ChangePrice) pendingAction).pieceNumber()); // Conserva target original intacto
+
+        // Paso 3: Aclaración unívoca 'no, la pieza #9'
+        BotEngine.Reply r3 = bot.process(SESS, "no, la pieza #9", null);
+        assertEquals("AWAITING_CONFIRMATION", r3.state());
+        assertTrue(r3.replyText().contains("#9") && r3.replyText().contains("25.000"));
+
+        // Paso 4: Confirmar con 'sí'
+        BotEngine.Reply r4 = bot.process(SESS, "sí", null);
+        assertEquals("IDLE", r4.state());
+        assertTrue(r4.replyText().contains("¡Listo Norma!"));
+
+        // Verificar precios finales en catálogo:
+        // #9 debe tener 25000
+        // #3 debe conservar 12000 (no tocada)
+        // #2 debe conservar 18500 (no tocada, precio seed de 'Jarrón de gres')
+        List<Catalog.Product> finalProds = catalog.all(SESS);
+        assertEquals(18500, finalProds.get(1).price()); // #2
+        assertEquals(12000, finalProds.get(2).price()); // #3
+        assertEquals(25000, finalProds.get(8).price()); // #9
+    }
+
+    @Test
+    @DisplayName("R1.v1.2: Corrección por nombre duplicado en DETAILS aclara candidatos y no elige la primera pieza")
+    void testDuplicateNameCorrectionInDetailsRequiresPieceNumberClarification() {
+        // En seed: #3 es 'Taza panzona' a 12000.
+        // Insertamos #9 con título normalizado equivalente 'taza panzona' a 9000
+        catalog.insert(SESS, 9, "taza panzona", 9000, "taza9.webp", false);
+
+        // Paso 1: Iniciar cambio de precio sobre #2 sin monto
+        BotEngine.Reply r1 = bot.process(SESS, "Cambiá el precio de #2", null);
+        assertEquals("AWAITING_DETAILS", r1.state());
+
+        // Paso 2: Corrección con título duplicado en minúsculas
+        BotEngine.Reply r2 = bot.process(SESS, "no, la pieza taza panzona", null);
+        assertEquals("AWAITING_DETAILS", r2.state());
+        assertTrue(r2.replyText().contains("Hay varias piezas que coinciden"));
+        assertTrue(r2.replyText().contains("#3") && r2.replyText().contains("#9"));
+
+        // Verificar que el borrador sigue en AWAITING_DETAILS con target 2 sin mutar a 3
+        Catalog.Session sAfterAmb = catalog.session(SESS);
+        BotModel.Draft draft = codec.decodePending(sAfterAmb.pending(), SESS, sAfterAmb.tempImage()).orElseThrow().draft();
+        assertEquals(2, draft.target());
+
+        // Paso 3: Aclaración unívoca 'no, la pieza #9'
+        BotEngine.Reply r3 = bot.process(SESS, "no, la pieza #9", null);
+        assertEquals("AWAITING_DETAILS", r3.state());
+        assertTrue(r3.replyText().contains("precio"));
+
+        Catalog.Session sAfterClar = catalog.session(SESS);
+        BotModel.Draft draftClar = codec.decodePending(sAfterClar.pending(), SESS, sAfterClar.tempImage()).orElseThrow().draft();
+        assertEquals(9, draftClar.target());
+
+        // Paso 4: Completar precio y confirmar
+        bot.process(SESS, "25000", null);
+        bot.process(SESS, "sí", null);
+
+        List<Catalog.Product> finalProds = catalog.all(SESS);
+        assertEquals(18500, finalProds.get(1).price()); // #2
+        assertEquals(12000, finalProds.get(2).price()); // #3
+        assertEquals(25000, finalProds.get(8).price()); // #9
+    }
+
+    @Test
+    @DisplayName("R1.v1.2: Corrección con nombre único resuelve directamente sin ambigüedad")
+    void testUniqueNameCorrectionResolvesDirectly() {
+        // #2 es 'Jarrón de gres' (nombre único en seed)
+        bot.process(SESS, "Cambiá el precio de #1 a 30000", null);
+        BotEngine.Reply r = bot.process(SESS, "no, la pieza Jarrón de gres", null);
+        assertEquals("AWAITING_CONFIRMATION", r.state());
+        assertTrue(r.replyText().contains("#2") && r.replyText().contains("30.000"));
+        bot.process(SESS, "sí", null);
+        assertEquals(30000, catalog.all(SESS).get(1).price()); // #2 actualizado
+    }
 }
