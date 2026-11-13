@@ -100,18 +100,18 @@
       "title0Length": 10,
       "title1Length": 60
     },
-    "zoom_200_page_zoom": {
+    "zoom_200_css_zoom": {
       "clientWidth": 1425,
       "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
       "innerWidth": 1440,
       "maxHeight": 1029.953125,
-      "method": "CSS Page Zoom (document.body.style.zoom = '2')",
+      "method": "CSS Zoom en motor Chromium (document.body.style.zoom = '2')",
       "minHeight": 1029.953125,
       "scrollWidth": 1425,
       "zoomFactor": 2,
-      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_page_zoom_200.png"
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_css_zoom_200.png"
     },
     "reflow_zoom_640px": {
       "clientWidth": 625,
@@ -139,6 +139,14 @@
       "visualViewportScale": 1,
       "visualViewportWidth": 1265,
       "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_zoom_200.png"
+    },
+    "zoom_limitation_and_methods_note": {
+      "limitation": "La CLI de Orca (1.4.257) y sus comandos browser no proveen comando o flag nativo de browser page zoom de ventana completa (p.ej. --zoom); el comportamiento de aumento visual al 200% y reflow se verifica mediante tres tecnicas complementarias registradas.",
+      "methods": [
+        "1. CSS Zoom (document.body.style.zoom = '2') ejecutado y capturado mientras esta activo (v1_css_zoom_200.png), con escalado 2x de alturas de tarjetas e igualdad estricta diff=0.00px.",
+        "2. WCAG 2.1 Reflow SC 1.4.10: Viewport estrecho a 640 CSS px (equivalente a 200% de 1280px) y 320 CSS px (equivalente a 400% de 1280px) sin desborde horizontal (scrollWidth <= clientWidth).",
+        "3. DPR Scaling: deviceScaleFactor=2 (devicePixelRatio=2) documentado como escala de dispositivo/rasterizacion HiDPI (v1_zoom_200.png)."
+      ]
     }
   },
   "V2": {
