@@ -1,0 +1,20 @@
+TEST-com.norma.taller.ApiAudioTest.xml: tests=7 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.ApiPublishTest.xml: tests=7 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.BotApiTest.xml: tests=6 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.BotEngineTest.xml: tests=30 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.BotPersistenceTest.xml: tests=1 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.BotSessionCodecTest.xml: tests=15 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.CatalogMigrationTest.xml: tests=3 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.CatalogPersistenceTest.xml: tests=3 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.CatalogRepositoryTest.xml: tests=7 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.DemoMediaTest.xml: tests=3 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.FlowTest.xml: tests=4 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.IntentFallbackApiTest.xml: tests=6 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.IntentFallbackTest.xml: tests=21 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.IntentParserTest.xml: tests=61 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.MediaHttpTest.xml: tests=23 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.MediaServiceTest.xml: tests=20 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.PhotoProcessorTest.xml: tests=19 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.StorefrontContractTest.xml: tests=6 failures=0 errors=0 skipped=0
+TEST-com.norma.taller.StorefrontSseTest.xml: tests=1 failures=0 errors=0 skipped=0
+TOTAL: suites=19 tests=243 failures=0 errors=0 skipped=0
