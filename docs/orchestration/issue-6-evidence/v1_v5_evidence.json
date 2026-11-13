@@ -1,13 +1,13 @@
 {
   "V1": {
-    "vp_320": {
+    "viewport_320px": {
       "cardCount": 8,
-      "clientW": 305,
-      "diffH": 0,
+      "clientWidth": 305,
+      "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
-      "maxH": 463.828125,
-      "minH": 463.828125,
+      "maxHeight": 463.828125,
+      "minHeight": 463.828125,
       "photo4_3": true,
       "photoRatios": [
         1.3333913497519798,
@@ -19,18 +19,18 @@
         1.3333913497519798,
         1.3333913497519798
       ],
-      "scrollW": 305,
-      "viewport": 320,
+      "scrollWidth": 305,
+      "viewportWidth": 320,
       "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_viewport_320.png"
     },
-    "vp_375": {
+    "viewport_375px": {
       "cardCount": 8,
-      "clientW": 360,
-      "diffH": 0,
+      "clientWidth": 360,
+      "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
-      "maxH": 505.078125,
-      "minH": 505.078125,
+      "maxHeight": 505.078125,
+      "minHeight": 505.078125,
       "photo4_3": true,
       "photoRatios": [
         1.333380510933409,
@@ -42,18 +42,18 @@
         1.333380510933409,
         1.333380510933409
       ],
-      "scrollW": 360,
-      "viewport": 375,
+      "scrollWidth": 360,
+      "viewportWidth": 375,
       "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_viewport_375.png"
     },
-    "vp_768": {
+    "viewport_768px": {
       "cardCount": 8,
-      "clientW": 753,
-      "diffH": 0,
+      "clientWidth": 753,
+      "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
-      "maxH": 530.65625,
-      "minH": 530.65625,
+      "maxHeight": 530.65625,
+      "minHeight": 530.65625,
       "photo4_3": true,
       "photoRatios": [
         1.3333333333333333,
@@ -65,18 +65,18 @@
         1.3333333333333333,
         1.3333967529173008
       ],
-      "scrollW": 753,
-      "viewport": 768,
+      "scrollWidth": 753,
+      "viewportWidth": 768,
       "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_viewport_768.png"
     },
-    "vp_1440": {
+    "viewport_1440px": {
       "cardCount": 8,
-      "clientW": 1425,
-      "diffH": 0,
+      "clientWidth": 1425,
+      "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
-      "maxH": 562.6875,
-      "minH": 562.6875,
+      "maxHeight": 562.6875,
+      "minHeight": 562.6875,
       "photo4_3": true,
       "photoRatios": [
         1.3333894595049671,
@@ -88,241 +88,306 @@
         1.3333894595049671,
         1.3333894595049671
       ],
-      "scrollW": 1425,
-      "viewport": 1440,
+      "scrollWidth": 1425,
+      "viewportWidth": 1440,
       "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_viewport_1440.png"
     },
     "title_lengths_test": {
-      "diffH": 0,
-      "h2_0": 10,
-      "h2_1": 60,
+      "diffHeight": 0,
       "heightsEqual": true,
-      "maxH": 562.6875,
-      "minH": 562.6875
+      "maxHeight": 562.6875,
+      "minHeight": 562.6875,
+      "title0Length": 10,
+      "title1Length": 60
     },
-    "zoom_200": {
-      "clientW": 1265,
-      "diffH": 0,
+    "zoom_200_scale2": {
+      "clientWidth": 1265,
+      "devicePixelRatio": 2,
+      "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
-      "scrollW": 1265
+      "scrollWidth": 1265,
+      "visualViewportHeight": 800,
+      "visualViewportScale": 1,
+      "visualViewportWidth": 1265
     }
   },
   "V2": {
-    "normal_fonts": {
+    "normal_mode_fonts": {
       "allGte22": true,
-      "bodyFs": 22,
+      "bodyFontSize": 22,
       "elements": [
         {
           "fs": 64,
-          "sel": "header h1"
+          "selector": "header h1"
         },
         {
           "fs": 22,
-          "sel": ".eyebrow"
+          "selector": ".eyebrow"
         },
         {
           "fs": 22,
-          "sel": "header p"
+          "selector": "header p"
         },
         {
           "fs": 22,
-          "sel": "#font"
+          "selector": "#font"
         },
         {
           "fs": 22,
-          "sel": "#listen"
+          "selector": "#listen"
         },
         {
           "fs": 22,
-          "sel": ".card .number"
+          "selector": ".card .number"
         },
         {
           "fs": 27.5,
-          "sel": ".card h2"
+          "selector": ".card h2"
         },
         {
           "fs": 28.6,
-          "sel": ".card .price"
+          "selector": ".card .price"
         },
         {
           "fs": 22,
-          "sel": "footer"
+          "selector": "footer"
         },
         {
           "fs": 22,
-          "sel": ".evaluation"
+          "selector": ".evaluation"
         }
       ],
-      "rootFs": 22
+      "rootFontSize": 22
     },
-    "large_fonts": {
+    "large_mode_fonts": {
       "allGte28_6": true,
-      "bodyFs": 28.6,
+      "bodyFontSize": 28.6,
       "elements": [
         {
           "fs": 64,
-          "sel": "header h1"
+          "selector": "header h1"
         },
         {
           "fs": 28.6,
-          "sel": ".eyebrow"
+          "selector": ".eyebrow"
         },
         {
           "fs": 28.6,
-          "sel": "header p"
+          "selector": "header p"
         },
         {
           "fs": 28.6,
-          "sel": "#font"
+          "selector": "#font"
         },
         {
           "fs": 28.6,
-          "sel": "#listen"
+          "selector": "#listen"
         },
         {
           "fs": 28.6,
-          "sel": ".card .number"
+          "selector": ".card .number"
         },
         {
           "fs": 35.75,
-          "sel": ".card h2"
+          "selector": ".card h2"
         },
         {
           "fs": 37.18,
-          "sel": ".card .price"
+          "selector": ".card .price"
         },
         {
           "fs": 28.6,
-          "sel": "footer"
+          "selector": "footer"
         },
         {
           "fs": 28.6,
-          "sel": ".evaluation"
+          "selector": ".evaluation"
         }
       ],
       "ratio": 1.3,
-      "rootFs": 28.6
+      "rootFontSize": 28.6
     },
-    "contrast_table": [
+    "computed_contrast_pairs": [
       {
-        "element": "Texto principal en fondo general",
-        "fg": "#1a120c",
-        "bg": "#f7f1e6",
-        "ratio": 16.44686066465713,
-        "pass": true
-      },
-      {
-        "element": "Texto principal en tarjeta",
-        "fg": "#1a120c",
-        "bg": "#fffaf1",
-        "ratio": 17.782390632851108,
-        "pass": true
-      },
-      {
-        "element": "Encabezados h1/h2",
-        "fg": "#421d0d",
-        "bg": "#f7f1e6",
+        "bgComputed": "rgb(247, 241, 230)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
         "ratio": 13.217861477141147,
-        "pass": true
+        "required": 7,
+        "selector": "h1",
+        "state": "normal"
       },
       {
-        "element": "Encabezado h2 en tarjeta",
-        "fg": "#421d0d",
-        "bg": "#fffaf1",
+        "bgComputed": "rgb(247, 241, 230)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
+        "ratio": 13.217861477141147,
+        "required": 7,
+        "selector": ".eyebrow",
+        "state": "normal"
+      },
+      {
+        "bgComputed": "rgb(247, 241, 230)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
+        "ratio": 13.217861477141147,
+        "required": 7,
+        "selector": "header p",
+        "state": "normal"
+      },
+      {
+        "bgComputed": "rgb(255, 250, 241)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
         "ratio": 14.29118789961721,
-        "pass": true
+        "required": 7,
+        "selector": ".card h2",
+        "state": "normal"
       },
       {
-        "element": "Número de pieza (.number)",
-        "fg": "#421d0d",
-        "bg": "#fffaf1",
+        "bgComputed": "rgb(255, 250, 241)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
         "ratio": 14.29118789961721,
-        "pass": true
+        "required": 7,
+        "selector": ".card .number",
+        "state": "normal"
       },
       {
-        "element": "Precio (.price)",
-        "fg": "#1a120c",
-        "bg": "#fffaf1",
+        "bgComputed": "rgb(255, 250, 241)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
         "ratio": 17.782390632851108,
-        "pass": true
+        "required": 7,
+        "selector": ".card .price",
+        "state": "normal"
       },
       {
-        "element": "Botón normal texto/fondo",
-        "fg": "#1a120c",
-        "bg": "#fffaf1",
+        "bgComputed": "rgb(255, 250, 241)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
         "ratio": 17.782390632851108,
-        "pass": true
+        "required": 7,
+        "selector": "#font",
+        "state": "normal"
       },
       {
-        "element": "Botón hover texto/fondo",
-        "fg": "#1a120c",
-        "bg": "#dfceb7",
-        "ratio": 12.018359355399996,
-        "pass": true
-      },
-      {
-        "element": "Botón disabled texto/fondo",
-        "fg": "#1a120c",
-        "bg": "#e5ded3",
+        "bgComputed": "rgb(229, 222, 211)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
         "ratio": 13.841682036845759,
-        "pass": true
+        "required": 7,
+        "selector": "button:disabled",
+        "state": "disabled"
       },
       {
-        "element": "Placeholder de input",
-        "fg": "#3d2c20",
-        "bg": "#ffffff",
+        "bgComputed": "rgb(255, 255, 255)",
+        "fgComputed": "rgb(61, 44, 32)",
+        "passed": true,
         "ratio": 13.294928317232548,
-        "pass": true
+        "required": 7,
+        "selector": "input::placeholder",
+        "state": "placeholder"
       },
       {
-        "element": "Burbuja asistente (chat)",
-        "fg": "#1a120c",
-        "bg": "#fffaf1",
+        "bgComputed": "rgb(247, 241, 230)",
+        "fgComputed": "rgb(66, 29, 13)",
+        "passed": true,
+        "ratio": 13.217861477141147,
+        "required": 7,
+        "selector": "#sim-title",
+        "state": "normal"
+      },
+      {
+        "bgComputed": "rgb(255, 250, 241)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
         "ratio": 17.782390632851108,
-        "pass": true
+        "required": 7,
+        "selector": ".bubble (asistente)",
+        "state": "normal"
       },
       {
-        "element": "Burbuja Norma (me)",
-        "fg": "#1a120c",
-        "bg": "#e5ebdc",
+        "bgComputed": "rgb(229, 235, 220)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
         "ratio": 15.186739017197832,
-        "pass": true
+        "required": 7,
+        "selector": ".bubble.me (Norma)",
+        "state": "normal"
       },
       {
-        "element": "Mensaje de error status",
-        "fg": "#7a0e0e",
-        "bg": "#f7f1e6",
-        "ratio": 9.848613695027366,
-        "pass": true
-      },
-      {
-        "element": "Contorno de foco visible (:focus-visible)",
-        "fg": "#004b75",
-        "bg": "#f7f1e6",
-        "ratio": 8.253245474617575,
-        "req": 3.0,
-        "pass": true
+        "bgComputed": "rgb(247, 241, 230)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
+        "ratio": 16.44686066465713,
+        "required": 3,
+        "selector": ":focus-visible (outline)",
+        "state": "focus"
       }
     ]
   },
   "V3": {
-    "skip_link": {
-      "activeAfter": true,
-      "activeBefore": true
+    "tab1_skip_link": {
+      "active": {
+        "className": "skip",
+        "tag": "A",
+        "text": "Ir a las piezas"
+      },
+      "isSkip": true
     },
-    "zoom_keyboard": {
-      "dialogClosed": true,
-      "dialogOpen": true,
-      "focusInDialog": true,
-      "focusRestored": true
+    "enter_skip_link": {
+      "active": {
+        "id": "piezas",
+        "tag": "DIV"
+      },
+      "isPiezas": true
     },
-    "zoom_sold_test": {
-      "activeElementNum": "1",
+    "tab_to_photo1": {
+      "active": {
+        "ariaLabel": "Ampliar foto de la pieza 1: Cuenco rústico",
+        "className": "photo",
+        "tag": "BUTTON"
+      },
+      "isPhoto": true
+    },
+    "enter_open_zoom": {
+      "result": {
+        "activeId": "close-zoom",
+        "activeText": "Volver a las piezas",
+        "dialogOpen": true
+      },
+      "passed": true
+    },
+    "escape_close_zoom": {
+      "result": {
+        "activeClass": "photo",
+        "activeTag": "BUTTON",
+        "ariaLabel": "Ampliar foto de la pieza 1: Cuenco rústico",
+        "dialogOpen": false
+      },
+      "passed": true
+    },
+    "space_open_escape_close": {
+      "openWithSpace": true,
+      "focusCloseBtn": true,
+      "restoreOnEscape": true
+    },
+    "mobile_modal_reachability": {
+      "btnHeight": 108.78125,
+      "btnInViewport": true,
+      "btnVisible": true,
+      "btnWidth": 198.21875,
+      "dialogOpen": true
+    },
+    "zoom_sold_auto_close": {
+      "passed": true,
+      "shiftedFocusTarget": "1",
       "zoomClosed": true,
       "zoomWasOpen": true
     },
-    "sim_overlay_test": {
+    "sim_overlay_management": {
       "focusBackToOpen": true,
       "simClosed": true,
       "simOpen": true,
@@ -331,35 +396,67 @@
     }
   },
   "V4": {
-    "voice_test": {
-      "cancelCalled": true,
-      "silenceToggleWorked": true,
-      "utteranceLang": "es-AR",
-      "utteranceText": "Pieza número 1: Cuenco rústico, 15000 pesos. Pieza"
+    "stub_cases": {
+      "catalog_change_during_speech": {
+        "announcedCorrectly": true,
+        "cancelInvoked": true,
+        "silenceHidden": true,
+        "statusAnnouncement": "El catálogo cambió. Podés volver a escuchar."
+      },
+      "catalog_started": {
+        "silenceButtonVisible": true,
+        "utteranceLang": "es-AR",
+        "utteranceTextSnippet": "Pieza número 1: Cuenco rústico, 15000 pesos. "
+      },
+      "manual_stop": {
+        "cancelInvoked": true,
+        "isSpeakingState": false,
+        "silenceHidden": true
+      },
+      "onend_restoration": {
+        "isSpeakingState": false,
+        "silenceButtonHidden": true
+      },
+      "onerror_restoration": {
+        "isSpeakingState": false,
+        "zoomSilenceHidden": true
+      },
+      "zoom_started": {
+        "utteranceText": "Pieza número 1: Cuenco rústico, 15000 pesos.",
+        "zoomOpen": true,
+        "zoomSilenceVisible": true
+      }
     },
-    "voice_absent_test": {
-      "hasExpectedNotice": true,
-      "statusMsg": "Este navegador no ofrece lectura en voz alta. Podés leer las piezas en pantalla."
+    "speech_absent_fallback": {
+      "fallbackDisplayed": true,
+      "noExceptionThrown": true,
+      "statusText": "Este navegador no ofrece lectura en voz alta. Podés leer las piezas en pantalla."
+    },
+    "honest_environmental_limits": {
+      "engine": "Chromium headless / embedded Orca browser",
+      "voice_detection": "speechSynthesis.getVoices() con fallback a lang='es-AR'",
+      "limitation_note": "La disponibilidad de una voz argentina instalada nativa depende de los paquetes de sintesis del sistema operativo del usuario; el cliente especifica u.lang='es-AR' y selecciona una voz es-AR o es si existe en el navegador."
     }
   },
   "V5": {
-    "empty_state": {
+    "empty_catalogue": {
       "cardCount": 0,
-      "msg": "Por ahora no hay piezas disponibles. Pronto habrá más novedades del taller.",
-      "pass": true
+      "pass": true,
+      "statusText": "Por ahora no hay piezas disponibles. Pronto habrá más novedades del taller."
     },
-    "error_stale_state": {
+    "error_with_stale_data": {
       "cardCount": 8,
       "hasStaleWarning": true,
-      "retainsCards": true,
+      "retainsPreviousCards": true,
       "retryVisible": true,
       "statusText": "No pude obtener el catálogo. Mostrando piezas anteriores (pueden estar desactualizadas)."
     },
-    "photo_error_state": {
+    "photo_error_fallback": {
       "btnAriaLabel": "Foto no disponible de la pieza 1: Cuenco rústico",
       "fallbackFound": true,
       "fallbackText": "No pude cargar la foto de la pieza 1: Cuenco rústico",
-      "imgHidden": true
+      "imgDisplay": "none",
+      "pass": true
     }
   }
 }
