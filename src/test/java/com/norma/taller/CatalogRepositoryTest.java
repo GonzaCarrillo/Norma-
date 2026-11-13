@@ -502,15 +502,25 @@ public class CatalogRepositoryTest {
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("IMAGE", 1, null, null, "   ")));
 
-            // Verificar igualdad completa tras fallos de apply
+            // Verificar igualdad completa tras fallos de apply (Session y List<Product> exactos)
             List<Catalog.Product> prodsAfterApplyErrors = catalog.all(sess);
             assertEquals(prodsBeforeErrors.size(), prodsAfterApplyErrors.size());
             for (int i = 0; i < prodsBeforeErrors.size(); i++) {
+                assertEquals(prodsBeforeErrors.get(i).id(), prodsAfterApplyErrors.get(i).id());
+                assertEquals(prodsBeforeErrors.get(i).sessionId(), prodsAfterApplyErrors.get(i).sessionId());
                 assertEquals(prodsBeforeErrors.get(i).pieceNumber(), prodsAfterApplyErrors.get(i).pieceNumber());
+                assertEquals(prodsBeforeErrors.get(i).title(), prodsAfterApplyErrors.get(i).title());
                 assertEquals(prodsBeforeErrors.get(i).price(), prodsAfterApplyErrors.get(i).price());
                 assertEquals(prodsBeforeErrors.get(i).imageUrl(), prodsAfterApplyErrors.get(i).imageUrl());
                 assertEquals(prodsBeforeErrors.get(i).sold(), prodsAfterApplyErrors.get(i).sold());
             }
+            Catalog.Session sessAfterApplyErrors = catalog.session(sess);
+            assertEquals(sessBeforeErrors.id(), sessAfterApplyErrors.id());
+            assertEquals(sessBeforeErrors.state(), sessAfterApplyErrors.state());
+            assertEquals(sessBeforeErrors.pending(), sessAfterApplyErrors.pending());
+            assertEquals(sessBeforeErrors.tempImage(), sessAfterApplyErrors.tempImage());
+            assertEquals(sessBeforeErrors.snapshot(), sessAfterApplyErrors.snapshot());
+            assertEquals(sessBeforeErrors.nextNumber(), sessAfterApplyErrors.nextNumber());
 
             // SQL directo contra CHECK constraints, UNIQUE duplicado y tipos no numericos
             assertThrows(Exception.class, () ->
@@ -612,9 +622,13 @@ public class CatalogRepositoryTest {
             List<Catalog.Product> prodsAAfterRestoreFail = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id=? ORDER BY piece_number").param(sessA).query(Catalog.Product.class).list();
             assertEquals(8, prodsAAfterRestoreFail.size(), "Las 8 piezas originales deben permanecer intactas tras rollback de restore");
             for (int i = 0; i < 8; i++) {
+                assertEquals(prodsABefore.get(i).id(), prodsAAfterRestoreFail.get(i).id());
+                assertEquals(prodsABefore.get(i).sessionId(), prodsAAfterRestoreFail.get(i).sessionId());
                 assertEquals(prodsABefore.get(i).pieceNumber(), prodsAAfterRestoreFail.get(i).pieceNumber());
                 assertEquals(prodsABefore.get(i).title(), prodsAAfterRestoreFail.get(i).title());
                 assertEquals(prodsABefore.get(i).price(), prodsAAfterRestoreFail.get(i).price());
+                assertEquals(prodsABefore.get(i).imageUrl(), prodsAAfterRestoreFail.get(i).imageUrl());
+                assertEquals(prodsABefore.get(i).sold(), prodsAAfterRestoreFail.get(i).sold());
             }
             Catalog.Session sAAfterRestoreFail = catalog.session(sessA);
             assertEquals(sABefore.nextNumber(), sAAfterRestoreFail.nextNumber(), "next_number no debe cambiar tras restore fallido");

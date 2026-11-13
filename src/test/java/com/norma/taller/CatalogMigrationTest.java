@@ -151,21 +151,15 @@ public class CatalogMigrationTest {
             }
         }
 
+        // Capturar snapshot logico exacto tras primera migracion
+        String snapAfterMigrateM1 = captureDatabaseSnapshot(dataSource);
+
         // Segundo arranque consecutivo sobre v2: no debe alterar nada ni fallar
         assertDoesNotThrow(() -> initializer.initialize());
 
-        try (Connection conn = getConnection()) {
-            try (Statement st = conn.createStatement()) {
-                try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
-                    assertTrue(rs.next());
-                    assertEquals(2, rs.getInt(1));
-                }
-                try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM products WHERE session_id='DEFAULT'")) {
-                    assertTrue(rs.next());
-                    assertEquals(8, rs.getInt(1));
-                }
-            }
-        }
+        // Snapshot tras segundo arranque debe ser identico en esquema, filas, secuencias y version
+        String snapAfterSecondInitM1 = captureDatabaseSnapshot(dataSource);
+        assertEquals(snapAfterMigrateM1, snapAfterSecondInitM1, "Segundo arranque sobre base migrada en M1 debe ser idempotente y preservar todo el snapshot logico");
     }
 
     /**
@@ -450,6 +444,9 @@ public class CatalogMigrationTest {
             }
         }
 
+        // Capturar snapshot logico exacto antes del intento fallido de migracion
+        String snapBeforeFailM3 = captureDatabaseSnapshot(dsRaw);
+
         // Inyectar fallo en 'PRAGMA quick_check' (que ocurre post-copia y antes de PRAGMA user_version=2 y commit)
         TestFailingDataSource dsFailing = new TestFailingDataSource(dsRaw, "PRAGMA quick_check");
         CatalogDatabaseInitializer initFail = new CatalogDatabaseInitializer(dsFailing);
@@ -497,6 +494,9 @@ public class CatalogMigrationTest {
                 }
             }
         }
+        // Verificar que el snapshot logico completo (tablas, datos, secuencias, indices y version) permanecio byte-equivalente al original
+        String snapAfterFailM3 = captureDatabaseSnapshot(dsRaw);
+        assertEquals(snapBeforeFailM3, snapAfterFailM3, "Rollback de migracion fallida debe preservar de forma integra e identica todo el snapshot logico");
 
         // Recuperacion posterior en arranque limpio sin inyeccion de error: debe migrar exitosamente a v2
         CatalogDatabaseInitializer initClean = new CatalogDatabaseInitializer(dsRaw);
