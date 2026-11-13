@@ -1,80 +1,77 @@
-# Reporte de Construcción Correctiva — Issue #6: Vidriera accesible con SSE (v2)
+# Reporte de Construcción Correctiva — Issue #6: Vidriera accesible con SSE (v2.1)
 
 **Fecha:** 2026-11-13  
 **Agente:** Antigravity (Software Builder / Implementer)  
 **Coordinador:** Orca (Lead Software Engineer y Orquestador Técnico)  
-**Tarea / Dispatch:** `task_bcc51c9f95ca` / `ctx_74037e27e6e5`  
+**Tarea / Dispatch:** `task_439c9f85845f` / `ctx_decc904f5975` (continuación de `task_bcc51c9f95ca` / `ctx_74037e27e6e5` y diagnóstico `task_2d54903f5c8c`)  
 **Terminal Builder:** `term_7f7d8270-a58a-478b-831d-3b43b8c6fcce`  
 **Terminal Coordinador:** `term_104a5a3f-cca1-4813-a727-30ddd7a9152f`  
 **Worktree:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`  
 **Rama:** `GonzaCarrillo/reconcile-6-storefront`  
-**Base de trabajo:** `d13c51b835dd1a32eadf7043957e02b918f5c3e2`  
-**Diseño de referencia:** Codex v2.0 (`docs/orchestration/issue-6-corrective-design.md`)  
+**Commit base de fase 2 v2.1:** `e89c04bd225460683f004b6a59510d9003b1e191`  
+**Commit implementado y verificado:** `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`  
+**Diseño de referencia:** Codex v2.0 (`docs/orchestration/issue-6-corrective-design.md`) y Especificación v2.1 (`docs/orchestration/issue-6-sse-design-v2.1.md`)  
 
 ---
 
-## 1. Alcance Cerrado y Declaración sobre Código de Producción (§10 y Diseño v2)
+## 1. Alcance Cerrado y Resumen de la Intervención
 
-Conforme a la especificación correctiva aprobada por Orca y Codex:
-- **Archivos de producción autorizados bajo condición de defecto demostrado:** `src/main/resources/static/index.html`, `src/main/resources/static/style.css`, `src/main/resources/static/app.js`.
-- **Archivos de documentación y evidencia de construcción:** `docs/orchestration/issue-6-corrective-build.md`, `docs/orchestration/issue-6-corrective-evidence/builder/`.
-- **Frontera de aislamiento e invariantes estrictas:** Ningún archivo de backend, Api, MediaService, audio/voz (#5), esquemas SQL, POM, propiedades globales ni documentación global fue modificado. Se respetó la coexistencia con la issue paralela #5 ejecutada en su propio worktree y procesos.
-
-### Dictamen de Producción:
-**SIN MODIFICACIONES EN CÓDIGO DE PRODUCCIÓN.**  
-La inspección técnica exhaustiva de los componentes estáticos demostró que no existe defecto alguno en la implementación:
-1. La grilla responsive (`style.css`) mantiene absoluta uniformidad de tarjetas (diferencia de altura: **0.00 px**) mediante `min-height: 5.4em`, `grid-auto-rows: 1fr` y tarjetas con `height: 100%`.
-2. Las fotografías mantienen proporción 4:3 estricta (`aspect-ratio: 4 / 3; object-fit: cover`).
-3. Ausencia total de scroll horizontal (`overflow-x: clip`, `max-width: 100%`) en todos los viewports probados (1440px, 768px, 640px, 375px y 320px).
-4. El modo de letra grande eleva la raíz de 22px a 28.6px (+30%), verificado en runtime.
-5. El diálogo modal nativo `<dialog id="zoom">` atrapa el foco en `#close-zoom`, captura `Escape` y retorna el foco al disparador de la foto.
-6. El coordinador SSE (`app.js`) implementa deduplicación de refrescos (`inFlight`, `refreshPending`) y número generacional (`invalidationGen`), preservando el foco y reconciliando nodos por `data-piece-number`.
-7. El simulador de taller (§7) preserva íntegramente todos sus controles (`#open`, `#sim`, `#close`, `#text`, `#photo`, `#record`, `button[type="submit"]`, `#yes`, `#no`, `#undo`, `#reset`).
-
-Por lo tanto, en cumplimiento del criterio *"Modificar estáticos solo si la comprobación real demuestra un defecto; no insertar zoom CSS para simular aceptación"*, se preservaron intactos los archivos estáticos de producción.
-
----
-
-## 2. Investigación Técnica y Reporte de Bloqueo Ambiental (V1-zoom200)
-
-El criterio revocatorio de aceptación v2 exige:
-> *"Navegador de escritorio: capturar versión, tamaño de ventana e indicador nativo 100% y luego 200% durante la medición. Emulación desactivada; CSS zoom no inyectado; scale/DPR no alterados para fabricar resultado. Registrar método nativo utilizado."*
-> *"Sin acceso al indicador/control nativo: QA_REJECTED por bloqueo ambiental, sin sustituir por CSS zoom ni dar por cerrada #6."*
-
-### Diagnóstico Técnico del Entorno:
-1. **Entorno de ejecución:** Linux Mint 22.3 (x86_64, Linux 6.14.0-37-generic).
-2. **Capacidades de navegador CLI disponibles:**
-   - La herramienta provista para interacción con navegador es la CLI de Orca (`orca` v1.4.257), que gestiona pestañas Chromium headless/embebidas vía Chrome DevTools Protocol (CDP, Chromium `150.0.7871.250`).
-   - Comandos disponibles: `tab create|close`, `viewport`, `goto`, `eval`, `click`, `fill`, `keypress`, `screenshot`.
-3. **Imposibilidad técnica de capturar el indicador nativo de zoom:**
-   - `orca screenshot` invoca internamente el método CDP `Page.captureScreenshot`. Este método captura exclusivamente el bitmap del viewport DOM de la página renderizada.
-   - En arquitectura CDP y navegadores headless/sidecar, la interfaz de usuario de la ventana del sistema operativo (decoraciones de ventana, barra de direcciones, barra de menú y el menú/insignia nativa de porcentaje de zoom visual "100%" / "200%") **no forma parte del viewport DOM** y no es accesible ni capturable mediante la API de automatización.
-   - Además, en el demonio headless de Orca, `orca screenshot` genera timeout (`CDP error (Page.captureScreenshot): Screenshot timed out — the browser page did not draw a frame`) debido a la ausencia de loop de composición visual continuo en pestañas en segundo plano.
-4. **Ausencia de comandos CLI de zoom de ventana:**
-   - `orca` CLI no provee opciones o banderas para fijar el nivel de zoom nativo del navegador de escritorio (como `Page.setZoomLevel` o atajos de UI de aplicación).
-   - Las únicas opciones de escala disponibles en `orca` son `orca viewport --scale <n>` (que emula `deviceScaleFactor` / DPR). La especificación prohíbe expresamente el uso de `--scale 2` o `document.body.style.zoom = 2`.
-5. **Inexistencia de herramientas de automatización de GUI de escritorio:**
-   - No se encuentran instalados ni configurados arneses de automatización de ventanas de escritorio (como Playwright, Selenium con captura de ventana completa o herramientas OCR sobre ventana X11/Wayland).
-
-### Dictamen de Bloqueo:
-Conforme a la sección *Criterios verificables* de `docs/orchestration/issue-6-corrective-design.md`, se reporta formalmente un **BLOQUEO AMBIENTAL PRECISO PARA LA CAPTURA DEL INDICADOR NATIVO DE ZOOM 200%**. Se rechaza cualquier simulación mediante CSS zoom o scale DPR, manteniéndose la issue a la espera de un entorno con capacidades de captura de ventana de escritorio nativa para la auditoría QA.
+1. **Código de producción estático (CSS/JS/HTML):**
+   - Preservado intacto tras demostrarse en la inspección visual/DOM previa que la grilla responsive, la uniformidad de tarjetas (0.00 px de diferencia), la proporción 4:3 de fotografías, el reflow sin scroll horizontal, el diálogo modal `<dialog id="zoom">` y el simulador semántico operan al 100% de conformidad.
+2. **Aceptación manual de Zoom 200% (V1-zoom200):**
+   - Conforme a la instrucción oficial del Coordinador Orca (`msg_651772357c1e`), el usuario probó y aceptó manualmente la funcionalidad de zoom nativo al 200% en su navegador de escritorio (*"la #6 el zoom ya lo probe yo y funciona, dalo por hecho..."*). El bloqueo ambiental previo queda formalmente levantado por decisión y verificación directa del usuario, sin manipulación de zoom CSS ni escala DPR emulada.
+3. **Aislamiento de fallos en el ciclo de vida SSE (`Api.java` — v2.1):**
+   - Implementada la especificación técnica de Codex v2.1 para resolver de raíz el fallo intermitente HTTP 500 detectado durante la auditoría QA de Fase 3 (`issue-6-corrective-qa.md` / `issue-6-sse-diagnosis.md`).
+   - `Api.publish(String id)`:
+     - Remoción inmediata y sincrónica del emisor fallido de la lista `CopyOnWriteArrayList` en caso de error en `e.send(...)`.
+     - Limpieza atómica e idempotente del mapa de sesiones `streams` si la lista queda vacía (`streams.remove(id, list)`).
+     - Protección de `e.complete()` con bloque `try-catch (Exception ignored)` para evitar que excepciones asíncronas de Tomcat 10.1 (`IllegalStateException` / `AsyncRequestNotUsableException: Response not usable after response errors`) escapen del método `publish` y aborten la mutación transaccional con HTTP 500.
+     - Protección idéntica en el callback `onTimeout` ante cierres concurrentes.
+     - Acceso package-private al mapa `streams` para posibilitar auditoría y pruebas unitarias deterministas sin romper encapsulamiento público.
+4. **Pruebas y Verificación:**
+   - Creado `src/test/java/com/norma/taller/ApiPublishTest.java` con 5 pruebas unitarias deterministas (aislamiento de fallos, saneamiento de emisores, sesiones independientes, control positivo de fallo del baseline).
+   - Actualizado `src/test/java/com/norma/taller/StorefrontSseTest.java` asegurando aserciones de código HTTP 200 en mutaciones posteriores al cierre del lector SSE offline.
+5. **Frontera estricta e invariantes respetadas:**
+   - Cero modificaciones a la lógica de catálogo, persistencia, esquemas SQLite v2, parsing de intenciones, dependencias Maven ni lógica de voz/media (#5).
 
 ---
 
-## 3. Evidencia Funcional y de Reflow en Runtime Aislado
+## 2. Implementación Técnica Detallada (Codex v2.1)
 
-A pesar del bloqueo para capturar el indicador visual de ventana del SO, se verificó exhaustivamente el comportamiento responsive y de reflow en un servidor Spring Boot real arrancado desde el artefacto empaquetado:
+### 2.1 Modificación en `Api.java`
+```java
+ void publish(String id){
+  var list=streams.get(id);
+  if(list==null)return;
+  for(var e:list){
+   try{
+    e.send(SseEmitter.event().name("catalog-update").data("actualizado"));
+   }catch(Exception ex){
+    list.remove(e);
+    if(list.isEmpty())streams.remove(id,list);
+    try{e.complete();}catch(Exception ignored){}
+   }
+  }
+ }
+```
+- **Garantías logradas:**
+  1. Aislamiento transaccional total: la mutación de base de datos nunca falla por el estado de la conexión SSE del cliente.
+  2. Eliminación de carreras: si un cliente desconectado produce varias mutaciones seguidas, el emisor roto ya fue retirado en la primera iteración, impidiendo acumulación de fallos.
+  3. Difusión a emisores activos: si un emisor falla, la iteración continúa y los emisores activos de la misma o de otras sesiones reciben su notificación en tiempo y forma.
 
-- **Arnés de ejecución:** `docs/orchestration/issue-6-corrective-evidence/builder/run_builder_evidence.py`
-- **Registro estructurado:** `docs/orchestration/issue-6-corrective-evidence/builder/builder_evidence.json`
-- **Configuración de aislamiento:**
-  - Puerto dinámico HTTP: asignado aleatoriamente por el sistema operativo (`server.port=0`).
-  - Base de datos SQLite: `target/builder-runtime/smoke-db/taller.db` (esquema v2 inicializado y aislado).
-  - Directorio de subidas: `target/builder-runtime/smoke-uploads/`.
-  - Directorio temporal: `target/builder-runtime/smoke-tmp/`.
-  - Variable de credenciales: `groq.api.key=` (vacía, sin llamadas externas).
+### 2.2 Suite Unitaria `ApiPublishTest.java`
+- `testBrokenEmitterDoesNotThrowAndIsRemoved`: Verifica que un emisor que lanza `IOException` en `send()` e `IllegalStateException` en `complete()` no propaga excepción y es retirado de la lista y del mapa.
+- `testHealthyEmitterStillReceivesWhenAnotherFails`: Verifica que un emisor sano en la misma sesión recibe el evento aun cuando otro emisor falla.
+- `testSessionIsolation`: Verifica que un fallo en la sesión A no afecta la entrega de eventos a la sesión B.
+- `testPublishOnNonExistentSession`: Verifica que publicar en una sesión inexistente o sin emisores es un no-op seguro.
+- `testPositiveControlBaselineBehavior`: Control positivo que reproduce y demuestra que el código anterior sin try-catch arrojaba la excepción asíncrona hacia el llamador.
 
-### Resultados de Medición en Viewports:
+---
+
+## 3. Evidencia Funcional Previa (Métricas de Reflow y Viewports)
+
+Se mantienen vigentes los resultados obtenidos en el arnés de ejecución aislada en servidor real (`docs/orchestration/issue-6-corrective-evidence/builder/builder_evidence.json`):
+
 | Viewport | Ancho (CSS px) | Alto (CSS px) | Tarjetas | Diff Altura | Scroll Horizontal | Aspect Ratio Fotos (1..3) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | `desktop_1440` | 1440 | 900 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
@@ -83,23 +80,17 @@ A pesar del bloqueo para capturar el indicador visual de ventana del SO, se veri
 | `mobile_375` | 375 | 812 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
 | `mobile_320_min` | 320 | 640 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
 
-*(Nota: el viewport de 640 CSS px corresponde al reflow equivalente al 200% de aumento sobre un ancho de 1280 CSS px según el estándar WCAG SC 1.4.10).*
-
-### Verificaciones Complementarias:
-- **Tipografía (#font):** Tamaño base `:root` = 22.0 px; modo letra grande (`#font` activado) = 28.6 px; ratio de escala = **1.30** (+30% exacto); restauración a 22.0 px verificada.
-- **Diálogo modal (#zoom):** Apertura sobre foto de pieza, foco inicial atrapado en `#close-zoom`, cierre con `Escape` y retorno de foco verificado.
-- **Simulador (#sim):** Verificada la presencia y accesibilidad de todos los controles semánticos (`#open`, `#sim`, `#close`, `#text`, `#photo`, `#record`, `button[type="submit"]`, `#yes`, `#no`, `#undo`, `#reset`).
-- **Smoke HTTP:**
-  - `GET /api/ping` → `HTTP 200` `PONG`
-  - `GET /api/products?sessionId=builder_smoke_123` → `HTTP 200`, 8 piezas no vendidas devueltas con numeración consecutiva 1..8.
+- **Tipografía (#font):** Escala de 22.0 px a 28.6 px (+30% exacto).
+- **Diálogo modal (#zoom):** Foco atrapado en `#close-zoom`, cierre con `Escape` y retorno de foco.
+- **Simulador semántico:** 11 controles presentes y accesibles.
 
 ---
 
 ## 4. Evidencia de Compilación y Verificación Limpia (JDK 25)
 
-Siguiendo el protocolo oficial de `testing-and-qa` (§9):
-- **Commit exportado y auditado:** `b165b2f6cedc75203604a8c7ee3726e3ebc0c97e`
-- **Ruta de exportación limpia:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa.WqjwSe`
+Siguiendo el protocolo oficial de `testing-and-qa`:
+- **Commit exportado y auditado:** `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`
+- **Ruta de exportación limpia:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa.66XhTA`
 - **Entorno de compilación:**
   - JDK: Microsoft OpenJDK 25.0.4.1+1-LTS (`/home/gonzalocar/.jdks/ms-25.0.4.1`)
   - Maven: Apache Maven 3.8.7
@@ -117,14 +108,15 @@ Siguiendo el protocolo oficial de `testing-and-qa` (§9):
   ```
 - **Resultado:** `BUILD SUCCESS` (Exit code: `0`, duración: `01:37 min`).
 - **Sumas de comprobación SHA-256:**
-  - Registro de verificación (`verify.log`): `5ba285ad1719c2bbbdcbac9a18499cb0fb4e653d2e9ab15d0e9334191a6d8a78`
-  - Archivo ejecutable empaquetado (`taller-1.0.0.jar`): `7ccbb252d70813bf84a7428d3fae4780866d6b30b19cde040b21822bc3114c18`
-- **Suites ejecutadas:** 16 suites Surefire, **192 tests ejecutados, 0 fallos, 0 errores, 0 omitidos**.
+  - Registro de verificación (`verify.log`): `cf87e7d64938cb78cae14b285eed3d933deeb3876d606f147cad12486e8d39f5`
+  - Archivo ejecutable empaquetado (`taller-1.0.0.jar`): `6e4d0012d0e920af847ebeb2447c8773bc28c14e766c2f8a0a850b99455051a8`
+- **Suites ejecutadas:** 17 suites Surefire, **197 tests ejecutados, 0 fallos, 0 errores, 0 omitidos** (incluye los 5 tests de `ApiPublishTest` y `StorefrontSseTest`).
 
-### Desglose de Suites Surefire XML (`target/surefire-reports/` en exportación):
+### Desglose de Suites Surefire XML (`target/surefire-reports/` en exportación limpia):
 | Archivo de Reporte | Tests | Fallos | Errores | Omitidos |
 |---|:---:|:---:|:---:|:---:|
 | `TEST-com.norma.taller.ApiAudioTest.xml` | 4 | 0 | 0 | 0 |
+| `TEST-com.norma.taller.ApiPublishTest.xml` | 5 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotApiTest.xml` | 6 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotEngineTest.xml` | 30 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotPersistenceTest.xml` | 1 | 0 | 0 | 0 |
@@ -140,12 +132,21 @@ Siguiendo el protocolo oficial de `testing-and-qa` (§9):
 | `TEST-com.norma.taller.PhotoProcessorTest.xml` | 19 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.StorefrontContractTest.xml` | 6 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.StorefrontSseTest.xml` | 1 | 0 | 0 | 0 |
-| **Total General** | **192** | **0** | **0** | **0** |
+| **Total General** | **197** | **0** | **0** | **0** |
 
 ---
 
-## 5. Estado de la Entrega y Próximos Pasos
+## 5. Artefactos de Evidencia Generados
+- `docs/orchestration/issue-6-sse-design-v2.1.md`: Especificación técnica v2.1 de aislamiento SSE aprobada.
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/commit.txt`: Hash del commit verificado (`59e4e41d2e8d92b76511a195ac9409fb2c9b1869`).
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/clean-export-verify.log`: Log completo de la ejecución limpia de Maven verify.
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/clean-export-verify.log.sha256`: Suma SHA-256 del log.
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/taller-1.0.0.jar.sha256`: Suma SHA-256 del binario empaquetado.
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/TEST-com.norma.taller.ApiPublishTest.xml`: Reporte Surefire XML de pruebas deterministas de publish.
+- `docs/orchestration/issue-6-corrective-evidence/builder/sse/TEST-com.norma.taller.StorefrontSseTest.xml`: Reporte Surefire XML del test de integración de SSE.
 
-1. **Commit y Trazabilidad:** La evidencia técnica de exportación limpia se ejecutó sobre el commit `b165b2f6cedc75203604a8c7ee3726e3ebc0c97e`. Esta actualización documental final incorpora los hashes y rutas resultantes de la ejecución de compilación, declarando explícitamente dicha diferencia documental conforme a `testing-and-qa`.
-2. **Handoff a Orca:** Se entrega el commit para que el Lead Software Engineer coordine la **Fase 3: Auditoría QA independiente por GitHub Copilot** y posteriormente la **Fase 4: Aprobación arquitectónica por Codex**.
-3. **No-operaciones garantizadas:** No se ha realizado merge a `main`, push remoto, cierre unilateral de issues ni activación de agentes no autorizados.
+---
+
+## 6. Declaración de Diferencia Documental y Estado de Entrega
+1. **Diferencia documental:** Conforme al estándar `testing-and-qa`, se declara expresamente que la verificación limpia fue ejecutada sobre el commit de código `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`. El commit resultante que incluye este reporte y los artefactos de evidencia no altera el código compilable ni los binarios de la aplicación.
+2. **Listo para Fase 3 (Re-auditoría QA por GitHub Copilot):** La implementación correctiva se encuentra cerrada, verificada y documentada, lista para que el Lead Software Engineer (Orca) asigne la Fase 3 a GitHub Copilot y la posterior Fase 4 a Codex.
