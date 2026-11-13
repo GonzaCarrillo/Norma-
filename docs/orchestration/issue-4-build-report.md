@@ -12,6 +12,7 @@
 
 - **Sistema Operativo**: Linux x86_64 (Kernel 6.6+)
 - **Java Runtime / SDK**: Microsoft OpenJDK 25.0.4.1 (build 25.0.4.1+1-LTS)
+  - Ruta requerida: `JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1` (el Java por defecto en `$PATH` del host es OpenJDK 21; para compilar con `release 25` debe fijarse `JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 PATH=$JAVA_HOME/bin:$PATH`).
   - Bytecode: Versión 69 (Java 25 estándar, sin preview flags)
   - Parámetros de ejecución JNI: `--enable-native-access=ALL-UNNAMED` para bibliotecas nativas de SQLite (`sqlite-jdbc`) y WebP (`webp-imageio`).
 - **Herramienta de construcción**: Apache Maven 3.8.7
@@ -28,7 +29,8 @@
 | :--- | :--- | :--- |
 | `06e482e` | Gate B1 | Implementación de `PhotoProcessor` base con validación de contenedores (JPEG, PNG8, WebP estático), límites de 15 MiB / 24 MP / 16384 px, extracción EXIF IFD0 (orientaciones 1..8) con `metadata-extractor:2.19.0`, recorte 4:3, redimensionado 800x600 y corrección tonal sRGB8. Pruebas V1/V2/L1/O1/G1/C1 en `PhotoProcessorTest`. Aprobado por Orca (`msg_019a3f47c35e`). |
 | `6bcd742` | Gate B2 | Implementación de compresión WebP en hasta 8 intentos (`[80..10]`), umbral estricto < 80.000 bytes (con límite par 79.998 bytes), parseo RIFF estricto sin metadata/animación, ranura única de concurrencia (`Semaphore(1)`), staging privado en `.processing/`, publicación `ATOMIC_MOVE` y endpoint seguro `/media/**` con fail-safe 404. Pruebas W1/W2/F1/F2/H1 en `MediaHttpTest`. Aprobado por Orca (`msg_019a3f4e9f34`). |
-| *(Actual B3)* | Gate B3 | Incorporación de tests L2 (413 real sobre `RANDOM_PORT`), resiliencia ante FS sin `ATOMIC_MOVE`, symlinks, ciclo de vida completo FSM A1/A2 con `BotEngine`, inventario D1 y suite `DemoMediaTest`, inventario y procedencia en `docs/medios.md`, operaciones en `docs/operacion.md`, ADR en `docs/decisiones.md` y registro de aprobación. |
+| `c6be99b` | Gate B3 | Incorporación de tests L2 (413 real sobre `RANDOM_PORT`), resiliencia ante FS sin `ATOMIC_MOVE`, symlinks, ciclo de vida completo FSM A1/A2 con `BotEngine`, inventario D1 y suite `DemoMediaTest`, inventario y procedencia en `docs/medios.md`, operaciones en `docs/operacion.md`, ADR en `docs/decisiones.md` y registro de aprobación. |
+| *(Actual)* | Sub-tarea D-PROCEDENCIA | Corrección de la brecha D-PROCEDENCIA reportada por OpenCode QA: matriz individual completa en `docs/medios.md` para los 8 recursos WebP y 4 MP3 (motivo real, pareja inferida, fuente exacta, fotógrafo verificado o no identificado sin inventar, fecha de comprobación, licencia y transformaciones aplicadas). |
 
 ---
 
