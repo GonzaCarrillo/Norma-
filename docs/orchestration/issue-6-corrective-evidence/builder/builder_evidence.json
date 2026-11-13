@@ -1,0 +1,256 @@
+{
+  "server": {
+    "jar": "/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/taller-1.0.0.jar",
+    "port": 44449,
+    "jdk": "Microsoft OpenJDK 25.0.4.1+1-LTS",
+    "db": "/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/builder-runtime/smoke-db/taller.db",
+    "uploads": "/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/builder-runtime/smoke-uploads",
+    "exit_code": -9
+  },
+  "endpoints": {
+    "ping": {
+      "status": 200,
+      "body": "PONG"
+    },
+    "products": {
+      "status": 200,
+      "count": 8,
+      "pieceNumbers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    }
+  },
+  "browser_layout": {
+    "initial_cards_count": 8,
+    "desktop_1440": {
+      "config": {
+        "name": "desktop_1440",
+        "width": 1440,
+        "height": 900
+      },
+      "measurements": {
+        "cardCount": 8,
+        "cardsEqualHeight": true,
+        "clientWidth": 1425,
+        "diffCardHeight": 0,
+        "hasHorizontalScroll": false,
+        "maxCardHeight": 562.6875,
+        "minCardHeight": 562.6875,
+        "photoRatios": [
+          {
+            "h": 278.390625,
+            "ratio": 1.3333894595049671,
+            "w": 371.203125
+          },
+          {
+            "h": 278.390625,
+            "ratio": 1.3333894595049671,
+            "w": 371.203125
+          },
+          {
+            "h": 278.40625,
+            "ratio": 1.333370748681109,
+            "w": 371.21875
+          }
+        ],
+        "scrollWidth": 1425,
+        "viewportWidth": 1440
+      },
+      "screenshot": null
+    },
+    "tablet_768": {
+      "config": {
+        "name": "tablet_768",
+        "width": 768,
+        "height": 1024
+      },
+      "measurements": {
+        "cardCount": 8,
+        "cardsEqualHeight": true,
+        "clientWidth": 753,
+        "diffCardHeight": 0,
+        "hasHorizontalScroll": false,
+        "maxCardHeight": 530.65625,
+        "minCardHeight": 530.65625,
+        "photoRatios": [
+          {
+            "h": 246.375,
+            "ratio": 1.3333333333333333,
+            "w": 328.5
+          },
+          {
+            "h": 246.375,
+            "ratio": 1.3333967529173008,
+            "w": 328.515625
+          },
+          {
+            "h": 246.375,
+            "ratio": 1.3333333333333333,
+            "w": 328.5
+          }
+        ],
+        "scrollWidth": 753,
+        "viewportWidth": 768
+      },
+      "screenshot": null
+    },
+    "reflow_640_zoom200": {
+      "config": {
+        "name": "reflow_640_zoom200",
+        "width": 640,
+        "height": 900
+      },
+      "measurements": {
+        "cardCount": 8,
+        "cardsEqualHeight": true,
+        "clientWidth": 625,
+        "diffCardHeight": 0,
+        "hasHorizontalScroll": false,
+        "maxCardHeight": 703.828125,
+        "minCardHeight": 703.828125,
+        "photoRatios": [
+          {
+            "h": 419.546875,
+            "ratio": 1.333358161707199,
+            "w": 559.40625
+          },
+          {
+            "h": 419.546875,
+            "ratio": 1.333358161707199,
+            "w": 559.40625
+          },
+          {
+            "h": 419.546875,
+            "ratio": 1.333358161707199,
+            "w": 559.40625
+          }
+        ],
+        "scrollWidth": 625,
+        "viewportWidth": 640
+      },
+      "screenshot": null
+    },
+    "mobile_375": {
+      "config": {
+        "name": "mobile_375",
+        "width": 375,
+        "height": 812
+      },
+      "measurements": {
+        "cardCount": 8,
+        "cardsEqualHeight": true,
+        "clientWidth": 360,
+        "diffCardHeight": 0,
+        "hasHorizontalScroll": false,
+        "maxCardHeight": 505.078125,
+        "minCardHeight": 505.078125,
+        "photoRatios": [
+          {
+            "h": 220.796875,
+            "ratio": 1.333380510933409,
+            "w": 294.40625
+          },
+          {
+            "h": 220.796875,
+            "ratio": 1.333380510933409,
+            "w": 294.40625
+          },
+          {
+            "h": 220.796875,
+            "ratio": 1.333380510933409,
+            "w": 294.40625
+          }
+        ],
+        "scrollWidth": 360,
+        "viewportWidth": 375
+      },
+      "screenshot": null
+    },
+    "mobile_320_min": {
+      "config": {
+        "name": "mobile_320_min",
+        "width": 320,
+        "height": 640
+      },
+      "measurements": {
+        "cardCount": 8,
+        "cardsEqualHeight": true,
+        "clientWidth": 305,
+        "diffCardHeight": 0,
+        "hasHorizontalScroll": false,
+        "maxCardHeight": 463.828125,
+        "minCardHeight": 463.828125,
+        "photoRatios": [
+          {
+            "h": 179.546875,
+            "ratio": 1.3333913497519798,
+            "w": 239.40625
+          },
+          {
+            "h": 179.546875,
+            "ratio": 1.3333913497519798,
+            "w": 239.40625
+          },
+          {
+            "h": 179.546875,
+            "ratio": 1.3333913497519798,
+            "w": 239.40625
+          }
+        ],
+        "scrollWidth": 305,
+        "viewportWidth": 320
+      },
+      "screenshot": null
+    },
+    "typography_check": {
+      "baseSize": 22,
+      "isLargeClass": true,
+      "largeSize": 28.6,
+      "ratio": 1.3,
+      "resetSize": 22
+    },
+    "modal_check": {
+      "focusOnClose": true,
+      "zoomClosed": true,
+      "zoomOpen": true
+    },
+    "simulator_check": {
+      "controlsExist": {
+        "close": true,
+        "no": true,
+        "open": true,
+        "record": true,
+        "reset": true,
+        "sim": true,
+        "submit": true,
+        "text": true,
+        "undo": true,
+        "yes": true
+      },
+      "simClosed": true,
+      "simOpen": true
+    }
+  },
+  "zoom_investigation": {
+    "requirement": "Capturar versión, tamaño de ventana e indicador nativo 100% y luego 200% durante la medición. Emulación desactivada; CSS zoom no inyectado; scale/DPR no alterados para fabricar resultado.",
+    "analysis": {
+      "orca_cli_version": "1.4.257",
+      "engine": "Chromium CDP (Chrome/150.0.7871.250)",
+      "cdp_capture_boundary": "orca screenshot usa CDP Page.captureScreenshot, capturando únicamente el viewport DOM de la página. No captura la interfaz de ventana del sistema operativo (decoraciones de ventana, barra de direcciones, barra de menú ni insignia/badge de zoom).",
+      "cli_parameter_limitations": "orca CLI no expone ningún comando o parámetro para aplicar zoom nativo de ventana completa (--zoom o Page.setZoomLevel) ni para inspeccionar indicadores de menú del navegador.",
+      "prohibited_substitutions": "docs/orchestration/issue-6-corrective-design.md prohíbe expresamente sustituir esta prueba mediante 'orca viewport --scale 2' (DPR/deviceScaleFactor) o 'document.body.style.zoom = 2' (CSS zoom inyectado).",
+      "system_desktop_automation": "No existe en el entorno ningún arnés instalado de automatización GUI de escritorio con captura de ventana completa y OCR (como Playwright, Selenium o scrot de ventana nativa de escritorio).",
+      "protocol_mandate": "docs/orchestration/issue-6-corrective-design.md estipula taxativamente: 'Sin acceso al indicador/control nativo: QA_REJECTED por bloqueo ambiental, sin sustituir por CSS zoom ni dar por cerrada #6.'"
+    },
+    "verdict": "BLOQUEO_AMBIENTAL_PRECISO",
+    "details": "El código estático (HTML/CSS/JS) no presenta defectos de maquetación ni reflow, pero la validación con indicador nativo visual de zoom 200% del navegador de escritorio está bloqueada por limitación de herramientas en el entorno headless/CLI."
+  },
+  "summary": {}
+}
