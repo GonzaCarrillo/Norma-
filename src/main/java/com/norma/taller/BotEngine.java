@@ -285,16 +285,33 @@ public class BotEngine {
             } else if (action instanceof BotModel.ChangePrice cp) {
                 updatedAction = new BotModel.ChangePrice(cp.pieceNumber(), newPrice);
             }
-        } else if (corr.field() == BotModel.CorrectionField.TARGET && corr.value() instanceof Integer newTarget) {
+        } else if (corr.field() == BotModel.CorrectionField.TARGET) {
             List<Catalog.Product> prods = catalog.all(id);
-            Optional<Catalog.Product> pOpt = prods.stream().filter(p -> p.pieceNumber() == (int) newTarget && !p.sold()).findFirst();
-            if (pOpt.isPresent()) {
-                if (action instanceof BotModel.ChangePrice cp) {
-                    updatedAction = new BotModel.ChangePrice(newTarget, cp.newPrice());
-                } else if (action instanceof BotModel.ChangeImage ci) {
-                    updatedAction = new BotModel.ChangeImage(newTarget, ci.newImageUrl());
-                } else if (action instanceof BotModel.Sell) {
-                    updatedAction = new BotModel.Sell(newTarget);
+            Integer newTarget = null;
+            if (corr.value() instanceof Integer it) {
+                newTarget = it;
+            } else if (corr.value() instanceof String st) {
+                String sNorm = IntentParser.norm(st);
+                Optional<Catalog.Product> match = prods.stream()
+                        .filter(p -> !p.sold() && IntentParser.norm(p.title()).equals(sNorm))
+                        .findFirst();
+                if (match.isPresent()) {
+                    newTarget = match.get().pieceNumber();
+                }
+            }
+            if (newTarget != null) {
+                int nt = newTarget;
+                Optional<Catalog.Product> pOpt = prods.stream().filter(p -> p.pieceNumber() == nt && !p.sold()).findFirst();
+                if (pOpt.isPresent()) {
+                    if (action instanceof BotModel.ChangePrice cp) {
+                        updatedAction = new BotModel.ChangePrice(nt, cp.newPrice());
+                    } else if (action instanceof BotModel.ChangeImage ci) {
+                        updatedAction = new BotModel.ChangeImage(nt, ci.newImageUrl());
+                    } else if (action instanceof BotModel.Sell) {
+                        updatedAction = new BotModel.Sell(nt);
+                    }
+                } else {
+                    return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
                 }
             } else {
                 return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
@@ -353,6 +370,10 @@ public class BotEngine {
 
         // Foto sola en DETAILS
         if (rawText.isEmpty() && image != null) {
+            // Si la operación era PRICE o SOLD, una foto inesperada conserva el borrador válido y no persiste imageUrl incompatible
+            if (draft.operation() == BotModel.Operation.PRICE || draft.operation() == BotModel.Operation.SOLD) {
+                return explainMissingField(id, draft);
+            }
             // Si la operación era IMAGE y faltaba la foto (Probe 2 F3)
             if (draft.operation() == BotModel.Operation.IMAGE && draft.target() != null) {
                 BotModel.ChangeImage ci = new BotModel.ChangeImage(draft.target(), image);
@@ -365,7 +386,7 @@ public class BotEngine {
                 catalog.conversation(id, BotModel.State.AWAITING_CONFIRMATION.name(), codec.encodePendingAction(id, cr), image);
                 return prepareReply(id, cr);
             }
-            // Reemplazar foto del borrador y volver a pedir datos
+            // Reemplazar foto del borrador para CREATE/IMAGE y volver a pedir datos
             BotModel.Draft updated = new BotModel.Draft(draft.operation(), draft.target(), draft.title(), draft.price(), image, draft.candidates());
             catalog.conversation(id, BotModel.State.AWAITING_DETAILS.name(), codec.encodePendingDraft(id, updated), image);
             return explainMissingField(id, updated);
@@ -420,7 +441,7 @@ public class BotEngine {
             }
         }
         if (standalone instanceof BotModel.NeedsDetails nd) {
-            if (draft.operation() != null && nd.draft().operation() != null && nd.draft().operation() != draft.operation()) {
+            if (isDraftIncompatible(draft, nd.draft())) {
                 return reply(id, "Tengo un cambio pendiente (" + describeDraft(id, draft) + "). Podés cancelarlo para iniciar otro o decirme qué querés corregir.");
             }
         }
@@ -469,9 +490,33 @@ public class BotEngine {
                 return explainMissingField(id, updated);
             }
         }
-        BotModel.Draft updated = new BotModel.Draft(op, targetNum, draft.title(), draft.price(), draft.imageUrl(), null);
+        BotModel.Draft updated = switch (op) {
+            case CREATE -> new BotModel.Draft(op, null, draft.title(), draft.price(), draft.imageUrl(), null);
+            case PRICE -> new BotModel.Draft(op, targetNum, null, draft.price(), null, null);
+            case IMAGE -> new BotModel.Draft(op, targetNum, null, null, draft.imageUrl(), null);
+            case SOLD -> new BotModel.Draft(op, targetNum, null, null, null, null);
+        };
         catalog.conversation(id, BotModel.State.AWAITING_DETAILS.name(), codec.encodePendingDraft(id, updated), updated.imageUrl());
         return explainMissingField(id, updated);
+    }
+
+    private boolean isDraftIncompatible(BotModel.Draft existing, BotModel.Draft incoming) {
+        if (existing == null || incoming == null) return false;
+        if (existing.operation() != null && incoming.operation() != null && existing.operation() != incoming.operation()) {
+            return true;
+        }
+        if (existing.operation() == BotModel.Operation.CREATE && incoming.operation() == BotModel.Operation.CREATE) {
+            if (existing.title() != null && incoming.title() != null && !IntentParser.norm(existing.title()).equals(IntentParser.norm(incoming.title()))) {
+                return true;
+            }
+            if (existing.price() != null && incoming.price() != null && !existing.price().equals(incoming.price())) {
+                return true;
+            }
+        }
+        if (existing.target() != null && incoming.target() != null && !existing.target().equals(incoming.target())) {
+            return true;
+        }
+        return false;
     }
 
     private boolean isActionCompatibleWithDraft(BotModel.Action action, BotModel.Draft draft) {
@@ -516,22 +561,45 @@ public class BotEngine {
                     completedAction = new BotModel.ChangePrice(updated.target(), newPrice);
                 }
             }
-        } else if (corr.field() == BotModel.CorrectionField.TARGET && corr.value() instanceof Integer newTarget) {
-            if (draft.operation() == null || draft.operation() == BotModel.Operation.PRICE || draft.operation() == BotModel.Operation.IMAGE || draft.operation() == BotModel.Operation.SOLD) {
-                Optional<Catalog.Product> pOpt = catalog.all(id).stream().filter(p -> p.pieceNumber() == (int) newTarget && !p.sold()).findFirst();
-                if (pOpt.isPresent()) {
-                    updated = new BotModel.Draft(draft.operation(), newTarget, draft.title(), draft.price(), draft.imageUrl(), null);
-                    if (updated.operation() == BotModel.Operation.PRICE && updated.price() != null) {
-                        completedAction = new BotModel.ChangePrice(newTarget, updated.price());
-                    } else if (updated.operation() == BotModel.Operation.IMAGE && (updated.imageUrl() != null || image != null)) {
-                        String img = updated.imageUrl() != null ? updated.imageUrl() : image;
-                        completedAction = new BotModel.ChangeImage(newTarget, img);
-                    } else if (updated.operation() == BotModel.Operation.SOLD) {
-                        completedAction = new BotModel.Sell(newTarget);
-                    }
-                } else {
-                    return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
+        } else if (corr.field() == BotModel.CorrectionField.TARGET) {
+            Integer newTarget = null;
+            if (corr.value() instanceof Integer it) {
+                newTarget = it;
+            } else if (corr.value() instanceof String st) {
+                String sNorm = IntentParser.norm(st);
+                Optional<Catalog.Product> match = catalog.all(id).stream()
+                        .filter(p -> !p.sold() && IntentParser.norm(p.title()).equals(sNorm))
+                        .findFirst();
+                if (match.isPresent()) {
+                    newTarget = match.get().pieceNumber();
                 }
+            }
+            if (newTarget != null) {
+                int nt = newTarget;
+                if (draft.operation() == null || draft.operation() == BotModel.Operation.PRICE || draft.operation() == BotModel.Operation.IMAGE || draft.operation() == BotModel.Operation.SOLD) {
+                    Optional<Catalog.Product> pOpt = catalog.all(id).stream().filter(p -> p.pieceNumber() == nt && !p.sold()).findFirst();
+                    if (pOpt.isPresent()) {
+                        BotModel.Operation dop = draft.operation() != null ? draft.operation() : BotModel.Operation.PRICE;
+                        updated = switch (dop) {
+                            case PRICE -> new BotModel.Draft(dop, nt, null, draft.price(), null, null);
+                            case IMAGE -> new BotModel.Draft(dop, nt, null, null, draft.imageUrl(), null);
+                            case SOLD -> new BotModel.Draft(dop, nt, null, null, null, null);
+                            default -> new BotModel.Draft(dop, nt, null, null, null, null);
+                        };
+                        if (updated.operation() == BotModel.Operation.PRICE && updated.price() != null) {
+                            completedAction = new BotModel.ChangePrice(nt, updated.price());
+                        } else if (updated.operation() == BotModel.Operation.IMAGE && (updated.imageUrl() != null || image != null)) {
+                            String img = updated.imageUrl() != null ? updated.imageUrl() : image;
+                            completedAction = new BotModel.ChangeImage(nt, img);
+                        } else if (updated.operation() == BotModel.Operation.SOLD) {
+                            completedAction = new BotModel.Sell(nt);
+                        }
+                    } else {
+                        return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
+                    }
+                }
+            } else {
+                return reply(id, "No encuentro esa pieza disponible. Decime otro numerito.");
             }
         } else if (corr.field() == BotModel.CorrectionField.TITLE && corr.value() instanceof String newTitle) {
             if (draft.operation() == null || draft.operation() == BotModel.Operation.CREATE) {

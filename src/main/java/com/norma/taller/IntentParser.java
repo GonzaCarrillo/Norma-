@@ -115,11 +115,16 @@ public class IntentParser {
         }
 
         // Corrección explícita de destino: "no, la pieza [ref]", "la pieza [ref]", "el numero es [ref]"
-        Pattern corrTarget = Pattern.compile("^(?:no[¡!¿?,.]*\\s*la pieza|la pieza|el numero es|la numero)\\s+(.+)$", Pattern.CASE_INSENSITIVE);
+        Pattern corrTarget = Pattern.compile("^(?:no[¡!¿?,.]*\\s*(?:la\\s+pieza|pieza|el\\s+n[uú]mero(?:\\s+es)?|el\\s+numero(?:\\s+es)?|la\\s+n[uú]mero|la\\s+numero)|la\\s+pieza|pieza|el\\s+n[uú]mero(?:\\s+es)?|el\\s+numero(?:\\s+es)?|la\\s+n[uú]mero|la\\s+numero)\\s+(.+)$", Pattern.CASE_INSENSITIVE);
         Matcher mTarget = corrTarget.matcher(rawStr);
         if (mTarget.find()) {
-            Integer t = parseTargetNumber(norm(mTarget.group(1)));
-            return new BotModel.Correction(BotModel.CorrectionField.TARGET, t);
+            String targetStr = mTarget.group(1).trim();
+            Integer t = parseTargetNumber(norm(targetStr));
+            if (t != null) {
+                return new BotModel.Correction(BotModel.CorrectionField.TARGET, t);
+            } else {
+                return new BotModel.Correction(BotModel.CorrectionField.TARGET, targetStr);
+            }
         }
 
         // Corrección explícita de título: "el nombre es [titulo]"
@@ -173,8 +178,8 @@ public class IntentParser {
         String inheritedImage = (image != null) ? image : (currentDraft != null ? currentDraft.imageUrl() : null);
 
         // 4. Reconocimiento de acciones por gramática y límites de segmento
-        // Si hay delimitadores de segmentos como ';', salto de línea o coordinación explícita ' y '
-        String[] segments = raw.split("[;\\n]+|\\s+y\\s+");
+        // Si hay delimitadores de segmentos como ';', salto de línea o coordinación explícita ' y ' / ' Y '
+        String[] segments = Pattern.compile("[;\\n]+|\\s+[yY]\\s+").split(raw);
         if (segments.length > 1) {
             int segActions = 0;
             for (String seg : segments) {
@@ -199,7 +204,6 @@ public class IntentParser {
 
         if (isCreateCandidate && !startsWithOtherAction && refs.number == null) {
             String titlePart = cm.group(1).trim();
-            titlePart = titlePart.replaceFirst("(?i)^(?:(?:agrega|agregá|publica|publicá|subi|subí)\\s+|(?:esta\\s+es|es)\\s+)", "").trim();
             titlePart = String.join(" ", titlePart.split("\\s+"));
             String pricePart = cm.group(2).trim();
 
@@ -462,7 +466,14 @@ public class IntentParser {
             }
         }
 
-        BotModel.Draft updated = new BotModel.Draft(op, target, title, price, imageUrl, null);
+        BotModel.Draft updated;
+        switch (op) {
+            case CREATE -> updated = new BotModel.Draft(op, null, title, price, imageUrl, null);
+            case PRICE -> updated = new BotModel.Draft(op, target, null, price, null, null);
+            case IMAGE -> updated = new BotModel.Draft(op, target, null, null, imageUrl, null);
+            case SOLD -> updated = new BotModel.Draft(op, target, null, null, null, null);
+            default -> updated = new BotModel.Draft(op, target, title, price, imageUrl, null);
+        }
 
         // Verificar si está completo
         return switch (op) {
@@ -520,14 +531,22 @@ public class IntentParser {
                 cleanWithoutRef = cleanWithoutRef.replaceAll("(?i)" + Pattern.quote(span), " ");
             }
             String normClean = norm(cleanWithoutRef);
-            normClean = normClean.replaceAll("^(?:" + verbRegex + ")\\s*", "").trim();
-            normClean = normClean.replaceFirst("^(?:la|el|una|un|de)\\s+", "").trim();
+            if (!verbRegex.isEmpty()) {
+                normClean = normClean.replaceAll("^(?:" + verbRegex + ")\\s*", "").trim();
+            }
+            normClean = normClean.replaceAll("^(?:la|el|una|un|de|a|al|del)\\b\\s*", "").trim();
             normClean = normClean.replaceFirst("\\s+(?:a|por|precio)\\s+.*$", "").trim();
+            normClean = normClean.replaceAll("\\s*\\b(?:la|el|una|un|de|a|al|del)$", "").trim();
+
+            Set<String> stopwords = Set.of("de", "la", "el", "un", "una", "a", "al", "del", "en", "por", "y", "");
+            if (stopwords.contains(normClean)) {
+                normClean = "";
+            }
 
             if (!normClean.isEmpty()) {
                 for (Catalog.Product p : available) {
                     String pNorm = norm(p.title());
-                    if (p.pieceNumber() != num && (pNorm.equals(normClean) || matchesFullWordSequence(normClean, pNorm))) {
+                    if (p.pieceNumber() != num && (pNorm.equals(normClean) || (!stopwords.contains(normClean) && normClean.length() > 3 && matchesFullWordSequence(normClean, pNorm)))) {
                         // Contradicción detectada: número dice 'num' pero nombre dice 'p.pieceNumber()'
                         List<Integer> cands = new ArrayList<>(List.of(num, p.pieceNumber()));
                         Collections.sort(cands);
@@ -611,19 +630,23 @@ public class IntentParser {
         ExtractedReferences res = new ExtractedReferences();
 
         // 1. Detectar si hay tokens decimales asociados a pieza/numero/# en el texto crudo
-        Pattern decPattern = Pattern.compile("(?:#\\s*|(?:\\b(?:pieza|numero|la\\s+numero)\\s+))([^\\s,;]+)", Pattern.CASE_INSENSITIVE);
+        // Cubre: #2.5, #2,5, pieza 2.5, pieza 2,5, la pieza 2,5, numero 2.5, número 2.5, la número 2.5, la numero 2,5
+        Pattern decPattern = Pattern.compile("(?:#\\s*|(?:\\b(?:la\\s+)?(?:pieza|n[uú]mero)\\s*))([\\d]+[.,][\\d]+)", Pattern.CASE_INSENSITIVE);
         Matcher decMatcher = decPattern.matcher(raw);
-        while (decMatcher.find()) {
-            String tok = decMatcher.group(1);
-            if (tok.matches(".*\\d+\\.\\d+.*")) {
-                res.invalidDecimalRef = true;
-                return res;
-            }
+        if (decMatcher.find()) {
+            res.invalidDecimalRef = true;
+            return res;
+        }
+
+        // Si el texto completo es sólo un número decimal
+        if (raw.trim().matches("^[\\d]+[.,][\\d]+$")) {
+            res.invalidDecimalRef = true;
+            return res;
         }
 
         // 2. Extraer referencias numéricas o habladas
         String s = norm(raw);
-        Pattern p = Pattern.compile("(?:#\\s*|(?:\\b(?:pieza|numero|la\\s+numero)\\s+))");
+        Pattern p = Pattern.compile("(?:#\\s*|(?:\\b(?:la\\s+)?(?:pieza|numero)\\s+))");
         Matcher m = p.matcher(s);
 
         Set<Integer> found = new HashSet<>();
@@ -632,10 +655,18 @@ public class IntentParser {
             String[] words = s.substring(start).trim().split("\\s+");
             Integer bestVal = null;
             int bestWordCount = 0;
-            for (int len = Math.min(words.length, 3); len >= 1; len--) {
+            for (int len = Math.min(words.length, 8); len >= 1; len--) {
                 String sub = String.join(" ", Arrays.copyOfRange(words, 0, len));
                 Integer val = parseTargetNumber(sub);
                 if (val != null) {
+                    // Verificar que no sea un prefijo truncado de una frase numérica más larga
+                    if (len < words.length) {
+                        String nextWord = words[len];
+                        if (nextWord.equals("y") || UNITS.containsKey(nextWord) || TENS.containsKey(nextWord)
+                                || HUNDREDS.containsKey(nextWord) || nextWord.matches("\\d+")) {
+                            continue;
+                        }
+                    }
                     bestVal = val;
                     bestWordCount = len;
                     break;
@@ -659,6 +690,7 @@ public class IntentParser {
     Integer parseTargetNumber(String token) {
         if (token == null) return null;
         token = token.trim();
+        token = token.replaceFirst("^(?:#\\s*|(?:la|el)?\\s*(?:pieza|n[uú]mero|numero)\\s*)", "").trim();
         if (token.matches("\\d+")) {
             try {
                 long l = Long.parseLong(token);
@@ -678,6 +710,21 @@ public class IntentParser {
     private static class PricePortionResult {
         String priceText;
         boolean multipleAmounts;
+    }
+
+    private boolean isPriceCandidate(String text) {
+        if (text == null) return false;
+        String s = text.trim();
+        if (s.isEmpty()) return false;
+        if (s.matches(".*[\\d$].*")) return true;
+        String sNorm = norm(s);
+        for (String w : sNorm.split("\\s+")) {
+            if (UNITS.containsKey(w) || TENS.containsKey(w) || HUNDREDS.containsKey(w)
+                    || w.equals("mil") || w.equals("millon") || w.equals("millones") || w.equals("lucas") || w.equals("luca")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private PricePortionResult extractPricePortion(String raw, ExtractedReferences refs) {
@@ -703,24 +750,35 @@ public class IntentParser {
             return result;
         }
 
-        // Detectar si hay más de un monto válido en los trozos
-        List<Integer> parsedAmounts = new ArrayList<>();
+        List<String> candidateChunks = new ArrayList<>();
         for (int i = 0; i < delimEnds.size(); i++) {
             int start = delimEnds.get(i);
             int end = (i + 1 < delimStarts.size()) ? delimStarts.get(i + 1) : s.length();
             String chunk = s.substring(start, end).trim();
-            Integer p = parsePriceExpression(chunk);
-            if (p != null) {
-                parsedAmounts.add(p);
+            if (isPriceCandidate(chunk)) {
+                candidateChunks.add(chunk);
             }
         }
 
-        if (parsedAmounts.size() > 1) {
+        if (candidateChunks.size() > 1) {
             result.multipleAmounts = true;
             return result;
         }
 
-        result.priceText = s.substring(delimEnds.get(delimEnds.size() - 1)).trim();
+        if (candidateChunks.size() == 1) {
+            String singleChunk = candidateChunks.get(0);
+            // Verificar si el chunk único contiene más de un número o intento (ej "15000 20000" o "15000 o 20000")
+            Matcher digitGroups = Pattern.compile("(?<![\\d.,])\\d+(?![\\d.,])").matcher(singleChunk);
+            long count = digitGroups.results().count();
+            if (count > 1) {
+                result.multipleAmounts = true;
+                return result;
+            }
+            result.priceText = singleChunk;
+            return result;
+        }
+
+        result.priceText = "";
         return result;
     }
 
@@ -766,9 +824,9 @@ public class IntentParser {
         // Normalizamos texto para palabras habladas
         String normS = norm(s);
 
-        // 2. Multiplicadores aislados: `15 mil`, `15 lucas`, `quince mil`, `quince lucas`
+        // 2. Multiplicadores aislados: `15 mil`, `15 lucas`, `1 luca`, `quince mil`, `quince lucas`
         if (!normS.contains("millon") && !normS.contains("millones")) {
-            Pattern multPattern = Pattern.compile("^(.*?)\\s+(mil|lucas)$");
+            Pattern multPattern = Pattern.compile("^(.*?)\\s+(mil|lucas?)$");
             Matcher multMatcher = multPattern.matcher(normS);
             if (multMatcher.matches()) {
                 String coefStr = multMatcher.group(1).trim();

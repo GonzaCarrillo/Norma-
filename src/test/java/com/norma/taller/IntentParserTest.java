@@ -308,4 +308,105 @@ public class IntentParserTest {
         BotModel.Sell s = (BotModel.Sell) ((BotModel.Complete) r).action();
         assertEquals(2, s.pieceNumber());
     }
+
+    // ========================================================
+    // REGRESIONES EXACTAS AUDITORÍA v1.1 (F1 - F2)
+    // ========================================================
+
+    @Test
+    @DisplayName("F1.v1.1: Decimales con acento o coma en pieza/número no se truncan a entero")
+    void testDecimalReferencesWithAccentOrCommaRejected() {
+        BotModel.ParseResult r1 = parser.interpret("Sacá la número 2.5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r1);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r1).reason());
+
+        BotModel.ParseResult r2 = parser.interpret("Sacá la pieza 2,5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r2);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r2).reason());
+
+        BotModel.ParseResult r3 = parser.interpret("pieza 2,5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r3);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r3).reason());
+
+        BotModel.ParseResult r4 = parser.interpret("#2.5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r4);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r4).reason());
+
+        BotModel.ParseResult r5 = parser.interpret("la numero 2,5", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r5);
+        assertEquals(BotModel.InvalidReason.DECIMAL_OR_CENTAVOS, ((BotModel.Invalid) r5).reason());
+    }
+
+    @Test
+    @DisplayName("F1.v1.1: Montos compuestos con primer monto inválido, negativo u overflow no se descartan")
+    void testCompoundAmountsWithInvalidFirstAmountRejected() {
+        // Primer monto con coma decimal seguido de segundo monto
+        BotModel.ParseResult r1 = parser.interpret("Cambiá el precio de #2 a 15,50 por 20000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r1);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r1).reason());
+
+        // Primer monto negativo seguido de segundo monto
+        BotModel.ParseResult r2 = parser.interpret("Cambiá el precio de #2 a -15000 por 20000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r2);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r2).reason());
+
+        // Primer monto en overflow intmax seguido de segundo monto
+        BotModel.ParseResult r3 = parser.interpret("Cambiá el precio de #2 a 2147483648 por 20000", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r3);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r3).reason());
+    }
+
+    @Test
+    @DisplayName("F1.v1.1: Múltiples acciones coordinadas con 'Y' mayúscula no eligen la última")
+    void testMultipleActionsWithUppercaseYRejected() {
+        BotModel.ParseResult r = parser.interpret("Cambiá el precio de #2 a 20000 Y sacá la pieza 2", null, sampleProducts, null);
+        assertInstanceOf(BotModel.Invalid.class, r);
+        assertEquals(BotModel.InvalidReason.MULTIPLE_ACTIONS, ((BotModel.Invalid) r).reason());
+    }
+
+    @Test
+    @DisplayName("F1.v1.1: Número hablado 'ciento treinta y dos' consume 132 completo y no prefijo 130")
+    void testSpokenNumberFull132Consumed() {
+        List<Catalog.Product> prods = List.of(
+                new Catalog.Product(130L, "S1", 130, "Pieza ciento treinta", 1000, null, false),
+                new Catalog.Product(132L, "S1", 132, "Pieza ciento treinta y dos", 2000, null, false)
+        );
+        BotModel.ParseResult r = parser.interpret("Sacá la pieza ciento treinta y dos", null, prods, null);
+        assertInstanceOf(BotModel.Complete.class, r);
+        BotModel.Sell s = (BotModel.Sell) ((BotModel.Complete) r).action();
+        assertEquals(132, s.pieceNumber());
+    }
+
+    @Test
+    @DisplayName("F1.v1.1: 'Cambiá el precio de #2' conserva destino 2 y no genera falsa ambigüedad por 'de'")
+    void testChangePriceOfTargetWithoutPriceDoesNotCreateFalseContradiction() {
+        // En sampleProducts, #2 es 'Maceta azul', #4 es 'Maceta de barro'
+        BotModel.ParseResult r = parser.interpret("Cambiá el precio de #2", null, sampleProducts, null);
+        assertInstanceOf(BotModel.NeedsDetails.class, r);
+        BotModel.NeedsDetails nd = (BotModel.NeedsDetails) r;
+        assertEquals(BotModel.Operation.PRICE, nd.draft().operation());
+        assertEquals(2, nd.draft().target());
+        assertNull(nd.draft().price());
+        assertEquals(BotModel.MissingField.PRICE, nd.missingField());
+    }
+
+    @Test
+    @DisplayName("F2.v1.1: 'Publicá Es amor a 15000' conserva título 'Es amor' extrayendo prefijo una sola vez")
+    void testPublishTitleStartingWithEsPreserved() {
+        BotModel.ParseResult r = parser.interpret("Publicá Es amor a 15000", "foto.webp", sampleProducts, null);
+        assertInstanceOf(BotModel.Complete.class, r);
+        BotModel.Create c = (BotModel.Create) ((BotModel.Complete) r).action();
+        assertEquals("Es amor", c.title());
+        assertEquals(15000, c.price());
+        assertEquals("foto.webp", c.imageUrl());
+    }
+
+    @Test
+    @DisplayName("F2.v1.1: Precios coloquiales contractuales: '15 lucas' y 'quince lucas'")
+    void testLucasColloquialPrices() {
+        assertEquals(15000, parser.price("15 lucas"));
+        assertEquals(15000, parser.price("quince lucas"));
+        assertEquals(1000, parser.price("1 luca"));
+        assertEquals(1000, parser.price("una luca"));
+    }
 }

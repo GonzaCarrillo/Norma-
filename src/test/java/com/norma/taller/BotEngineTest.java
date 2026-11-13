@@ -814,4 +814,121 @@ public class BotEngineTest {
         assertEquals("AWAITING_DETAILS", rConfirm.state());
         assertTrue(rConfirm.replyText().contains("No encuentro la pieza #2 disponible"));
     }
+
+    // ========================================================
+    // REGRESIONES EXACTAS AUDITORÍA v1.1 (F3 - F4)
+    // ========================================================
+
+    @Test
+    @DisplayName("F3.v1.1: Corrección 'no, la pieza #3' en CONFIRMATION cambia sólo target y repregunta")
+    void testCorrectionTargetHash3InConfirmation() {
+        bot.process(SESS, "Cambiá el precio de #2 a 25000", null);
+        Catalog.Session beforeCorr = catalog.session(SESS);
+        assertEquals("AWAITING_CONFIRMATION", beforeCorr.state());
+
+        // Corrección explícita usando sintaxis con '#'
+        BotEngine.Reply rCorr = bot.process(SESS, "no, la pieza #3", null);
+        assertEquals("AWAITING_CONFIRMATION", rCorr.state());
+        assertTrue(rCorr.replyText().contains("#3") && rCorr.replyText().contains("25.000"));
+
+        Catalog.Session afterCorr = catalog.session(SESS);
+        BotModel.Action action = codec.decodePending(afterCorr.pending(), SESS, afterCorr.tempImage()).orElseThrow().action();
+        assertInstanceOf(BotModel.ChangePrice.class, action);
+        BotModel.ChangePrice cp = (BotModel.ChangePrice) action;
+        assertEquals(3, cp.pieceNumber());
+        assertEquals(25000, cp.newPrice());
+
+        // Catálogo sigue intacto antes de confirmar (seed: #2 vale 18500, #3 vale 12000)
+        assertEquals(18500, catalog.all(SESS).get(1).price()); // #2 sin tocar
+        assertEquals(12000, catalog.all(SESS).get(2).price()); // #3 sin tocar
+
+        // Confirmamos
+        BotEngine.Reply rConfirm = bot.process(SESS, "sí", null);
+        assertEquals("IDLE", rConfirm.state());
+        assertEquals(18500, catalog.all(SESS).get(1).price()); // #2 intacto
+        assertEquals(25000, catalog.all(SESS).get(2).price()); // #3 actualizado a 25000
+    }
+
+    @Test
+    @DisplayName("F3.v1.1: CREATE parcial Plato 15000 luego Jarra 20000 SIN foto protege borrador y advierte conflicto")
+    void testPartialCreateConflictWithoutPhotoProtectsDraft() {
+        bot.process(SESS, "Publicá Plato a 15000", null);
+        Catalog.Session s1 = catalog.session(SESS);
+        assertEquals("AWAITING_DETAILS", s1.state());
+        String pendingBefore = s1.pending();
+        assertNotNull(pendingBefore);
+
+        // Envío de otra acción CREATE incompatible sin foto
+        BotEngine.Reply rConflict = bot.process(SESS, "Publicá Jarra a 20000", null);
+        assertEquals("AWAITING_DETAILS", rConflict.state());
+        assertTrue(rConflict.replyText().contains("Tengo un cambio pendiente") && rConflict.replyText().contains("Plato"));
+
+        Catalog.Session s2 = catalog.session(SESS);
+        // Borrador previo permanece íntegramente conservado
+        assertEquals(pendingBefore, s2.pending());
+        assertEquals("AWAITING_DETAILS", s2.state());
+        BotModel.Draft draft = codec.decodePending(s2.pending(), SESS, s2.tempImage()).orElseThrow().draft();
+        assertEquals("Plato", draft.title());
+        assertEquals(15000, draft.price());
+    }
+
+    @Test
+    @DisplayName("F3.v1.1: 'Cambiá el precio de #2' seguido de 'no, dije 25000' completa PRICE target 2")
+    void testChangePriceTargetThenCorrectionPriceCompletes() {
+        // Paso 1: Cambiá el precio de #2 (conserva target 2 y pide precio)
+        BotEngine.Reply r1 = bot.process(SESS, "Cambiá el precio de #2", null);
+        assertEquals("AWAITING_DETAILS", r1.state());
+        Catalog.Session s1 = catalog.session(SESS);
+        BotModel.Draft draft1 = codec.decodePending(s1.pending(), SESS, s1.tempImage()).orElseThrow().draft();
+        assertEquals(2, draft1.target());
+        assertNull(draft1.price());
+
+        // Paso 2: Corrección 'no, dije 25000'
+        BotEngine.Reply r2 = bot.process(SESS, "no, dije 25000", null);
+        assertEquals("AWAITING_CONFIRMATION", r2.state());
+        assertTrue(r2.replyText().contains("#2") && r2.replyText().contains("25.000"));
+
+        Catalog.Session s2 = catalog.session(SESS);
+        BotModel.Action action = codec.decodePending(s2.pending(), SESS, s2.tempImage()).orElseThrow().action();
+        assertInstanceOf(BotModel.ChangePrice.class, action);
+        BotModel.ChangePrice cp = (BotModel.ChangePrice) action;
+        assertEquals(2, cp.pieceNumber());
+        assertEquals(25000, cp.newPrice());
+
+        // Confirmar mutación
+        bot.process(SESS, "sí", null);
+        assertEquals(25000, catalog.all(SESS).get(1).price());
+    }
+
+    @Test
+    @DisplayName("F4.v1.1: Foto inesperada en PRICE no persiste imageUrl incompatible y roundtrip de codec es exacto")
+    void testPriceDraftUnexpectedPhotoDoesNotPersistIncompatibleImageUrl() {
+        // Paso 1: Iniciamos cambio de precio sin datos
+        bot.process(SESS, "Cambiá el precio", null);
+        Catalog.Session s1 = catalog.session(SESS);
+        assertEquals("AWAITING_DETAILS", s1.state());
+
+        // Paso 2: El usuario envía una foto sola (no aplicable a PRICE)
+        BotEngine.Reply rPhoto = bot.process(SESS, "", "foto_inesperada.webp");
+        assertEquals("AWAITING_DETAILS", rPhoto.state());
+
+        Catalog.Session s2 = catalog.session(SESS);
+        // El borrador NO debe contener imageUrl incompatible
+        BotModel.Draft draft = codec.decodePending(s2.pending(), SESS, s2.tempImage()).orElseThrow().draft();
+        assertEquals(BotModel.Operation.PRICE, draft.operation());
+        assertNull(draft.imageUrl());
+        assertNull(s2.tempImage());
+
+        // Paso 3: Mensaje vacío posterior no falla por corrupción de codec
+        BotEngine.Reply rEmpty = bot.process(SESS, "", null);
+        assertEquals("AWAITING_DETAILS", rEmpty.state());
+        assertFalse(rEmpty.replyText().contains("No pude recuperar el cambio pendiente"));
+
+        // Paso 4: Completar flujo normalmente
+        bot.process(SESS, "2", null); // target 2
+        bot.process(SESS, "22000", null); // precio 22000 -> AWAITING_CONFIRMATION
+        bot.process(SESS, "sí", null); // Confirmado -> IDLE
+        assertEquals("IDLE", catalog.session(SESS).state());
+        assertEquals(22000, catalog.all(SESS).get(1).price());
+    }
 }
