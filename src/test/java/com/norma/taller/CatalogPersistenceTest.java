@@ -212,15 +212,14 @@ public class CatalogPersistenceTest {
     }
 
     /**
-     * P2 Persistence:
-     * Arrancar aplicacion Spring Boot en contexto real sobre archivo temporal.
-     * GET crea sesion, POST reset funciona y DEFAULT no es accesible.
-     * Parar ordenadamente y relanzar sobre mismo archivo: GET preserva sesion y no reinicializa.
+     * P2 Persistence (Prueba a nivel Spring Boot ApplicationContext):
+     * Verifica la preservación del estado entre dos ciclos sucesivos de ApplicationContextRunner
+     * sobre el mismo archivo físico de base de datos SQLite (cerrando completamente el DataSource y pool entre ciclos).
+     * El reinicio real de procesos de sistema operativo independientes (PIDs distintos sobre JAR)
+     * se ejecuta y documenta en la fase de verificación y smoke packaging.
      */
     @Test
-    void testP2_springBootProcessRestartPreservesCatalog() throws Exception {
-        // En lugar de requerir un JAR pre-empaquetado (que se evalua en verify),
-        // simulamos dos ciclos de vida sucesivos independientes contra el archivo SQLite real.
+    void testP2_springBootContextRestartPreservesCatalog() throws Exception {
         createContextRunner().run(c1 -> {
             Catalog catalog = c1.getBean(Catalog.class);
             String testSess = "session_test_p2_real";
@@ -229,17 +228,17 @@ public class CatalogPersistenceTest {
             assertEquals(10, catalog.session(testSess).nextNumber());
         });
 
-        // Segundo ciclo
+        // Segundo ciclo de contexto sobre el mismo archivo en disco
         createContextRunner().run(c2 -> {
             Catalog catalog = c2.getBean(Catalog.class);
             String testSess = "session_test_p2_real";
-            // ensure debe ser idempotente
+            // ensure debe ser idempotente y no resembrar
             catalog.ensure(testSess);
             assertEquals(10, catalog.session(testSess).nextNumber());
             assertEquals(9, catalog.all(testSess).size());
             assertTrue(catalog.all(testSess).stream().anyMatch(p -> p.pieceNumber() == 9 && p.title().equals("Pieza P2")));
 
-            // DEFAULT no accesible como sesion de usuario
+            // DEFAULT no es accesible como sesion ordinaria
             assertThrows(IllegalArgumentException.class, () -> catalog.ensure("DEFAULT"));
             assertThrows(IllegalArgumentException.class, () -> catalog.all("DEFAULT"));
         });

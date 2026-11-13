@@ -219,13 +219,56 @@ public class CatalogMigrationTest {
         CatalogDatabaseInitializer initB = new CatalogDatabaseInitializer(dsB);
         assertThrows(IllegalStateException.class, () -> initB.initialize());
 
-        // Caso C: base v2 con trigger eliminado debe fallar
+        // Caso C: base v2 con trigger eliminado debe fallar sin reparar
         try (Connection conn = getConnection()) {
             try (Statement st = conn.createStatement()) {
                 st.execute("DROP TRIGGER protect_default_sessions_insert");
             }
         }
         assertThrows(IllegalStateException.class, () -> initializer.initialize());
+
+        // Caso D: base v2 con trigger reemplazado por otro del mismo nombre (homónimo falso)
+        Path dbPathHom = tempDir.resolve("test_fake_trigger.db");
+        SQLiteDataSource dsHom = new SQLiteDataSource();
+        dsHom.setUrl("jdbc:sqlite:" + dbPathHom.toAbsolutePath());
+        CatalogDatabaseInitializer initHom = new CatalogDatabaseInitializer(dsHom);
+        initHom.initialize(); // bootstrap v2
+        try (Connection conn = dsHom.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("DROP TRIGGER protect_default_products_update");
+            // Trigger inoperante homonimo con WHEN 0
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE ON products WHEN 0 BEGIN SELECT RAISE(ABORT, 'fake'); END;");
+        }
+        assertThrows(IllegalStateException.class, () -> initHom.initialize(), "v2 con trigger homonimo falso inoperante debe fallar");
+
+        // Caso E: base v2 con semilla alterada (precio de DEFAULT #1 modificado)
+        Path dbPathAltSeed = tempDir.resolve("test_alt_seed.db");
+        SQLiteDataSource dsAltSeed = new SQLiteDataSource();
+        dsAltSeed.setUrl("jdbc:sqlite:" + dbPathAltSeed.toAbsolutePath());
+        CatalogDatabaseInitializer initAlt = new CatalogDatabaseInitializer(dsAltSeed);
+        initAlt.initialize();
+        try (Connection conn = dsAltSeed.getConnection();
+             Statement st = conn.createStatement()) {
+            // Eliminar trigger de proteccion temporalmente solo para simular corrupcion de semilla
+            st.execute("DROP TRIGGER protect_default_products_update");
+            st.execute("UPDATE products SET price=99999 WHERE session_id='DEFAULT' AND piece_number=1");
+            // Reinstalar trigger original pero con datos alterados
+            st.execute("CREATE TRIGGER protect_default_products_update BEFORE UPDATE OF session_id, piece_number ON products WHEN OLD.session_id = 'DEFAULT' OR NEW.session_id = 'DEFAULT' BEGIN SELECT RAISE(ABORT, 'La sesión DEFAULT es inmutable'); END;");
+        }
+        assertThrows(IllegalStateException.class, () -> initAlt.initialize(), "v2 con semilla DEFAULT alterada debe fallar sin reparar silenciosamente");
+
+        // Caso F: base v2 sin foreign keys ni check constraints (estructura DDL alterada)
+        Path dbPathNoFK = tempDir.resolve("test_no_fk.db");
+        SQLiteDataSource dsNoFK = new SQLiteDataSource();
+        dsNoFK.setUrl("jdbc:sqlite:" + dbPathNoFK.toAbsolutePath());
+        try (Connection conn = dsNoFK.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("PRAGMA user_version = 2");
+            st.execute("CREATE TABLE sessions (id TEXT, state TEXT, next_number INTEGER)");
+            st.execute("CREATE TABLE products (id INTEGER, session_id TEXT, piece_number INTEGER, title TEXT, price INTEGER, image_url TEXT, sold INTEGER)");
+        }
+        CatalogDatabaseInitializer initNoFK = new CatalogDatabaseInitializer(dsNoFK);
+        assertThrows(IllegalStateException.class, () -> initNoFK.initialize(), "v2 sin FK, PK ni CHECK constraints debe fallar");
     }
 
     /**
@@ -327,6 +370,82 @@ public class CatalogMigrationTest {
             try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
                 assertTrue(rs.next());
                 assertEquals(2, rs.getInt(1));
+            }
+        }
+        // Caso D: Legacy con triggers/indices/vistas extra (F2) debe abortar sin modificar datos ni version
+        Path dbPathExtra = tempDir.resolve("test_extra_objects.db");
+        SQLiteDataSource dsExtra = new SQLiteDataSource();
+        dsExtra.setUrl("jdbc:sqlite:" + dbPathExtra.toAbsolutePath());
+        try (Connection conn = dsExtra.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('session_extra_1', 'IDLE', 9)");
+                st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) " +
+                        "VALUES(200, 'session_extra_1', 1, 'Pieza Extra', 10000, '/extra.webp', 0)");
+                // Trigger dependiente no estandar
+                st.execute("CREATE TRIGGER custom_safeguard BEFORE DELETE ON products BEGIN SELECT RAISE(ABORT, 'keep products'); END;");
+            }
+        }
+        CatalogDatabaseInitializer initExtra = new CatalogDatabaseInitializer(dsExtra);
+        assertThrows(IllegalStateException.class, () -> initExtra.initialize(), "Legacy con trigger extra debe ser rechazado sin tocar datos");
+        try (Connection conn = dsExtra.getConnection();
+             Statement st = conn.createStatement()) {
+            // Verificar user_version = 0 y trigger intacto
+            try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name='custom_safeguard'")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1), "Trigger custom_safeguard debe permanecer intacto");
+            }
+        }
+
+        // Caso E: Legacy con next_number REAL (ej: 1.5) o negativo/texto debe fallar (F4)
+        Path dbPathReal = tempDir.resolve("test_real_next_number.db");
+        SQLiteDataSource dsReal = new SQLiteDataSource();
+        dsReal.setUrl("jdbc:sqlite:" + dbPathReal.toAbsolutePath());
+        try (Connection conn = dsReal.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('session_real_1', 'IDLE', 1.5)");
+                st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) " +
+                        "VALUES(300, 'session_real_1', 1, 'Pieza Real', 10000, '/real.webp', 0)");
+            }
+        }
+        CatalogDatabaseInitializer initReal = new CatalogDatabaseInitializer(dsReal);
+        assertThrows(IllegalStateException.class, () -> initReal.initialize(), "next_number=1.5 REAL debe abortar la migracion");
+        try (Connection conn = dsReal.getConnection();
+             Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+        }
+
+        // Caso F: Legacy con sequence historica superior a ids vivos (F3)
+        Path dbPathSeq = tempDir.resolve("test_seq_high.db");
+        SQLiteDataSource dsSeq = new SQLiteDataSource();
+        dsSeq.setUrl("jdbc:sqlite:" + dbPathSeq.toAbsolutePath());
+        try (Connection conn = dsSeq.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('session_seq_1', 'IDLE', 9)");
+                st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) " +
+                        "VALUES(1000, 'session_seq_1', 1, 'Pieza 1000', 10000, '/1000.webp', 0)");
+                // Borrar el producto 1000 para que sqlite_sequence mantenga 1000 pero no haya id 1000 vivo
+                st.execute("DELETE FROM products WHERE id=1000");
+                st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) " +
+                        "VALUES(5, 'session_seq_1', 1, 'Pieza 5', 10000, '/5.webp', 0)");
+            }
+        }
+        CatalogDatabaseInitializer initSeq = new CatalogDatabaseInitializer(dsSeq);
+        assertDoesNotThrow(() -> initSeq.initialize());
+        try (Connection conn = dsSeq.getConnection();
+             Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT seq FROM sqlite_sequence WHERE name='products'")) {
+                assertTrue(rs.next());
+                assertTrue(rs.getLong(1) >= 1000, "sqlite_sequence.products debe preservar el maximo historico (>=1000)");
             }
         }
     }

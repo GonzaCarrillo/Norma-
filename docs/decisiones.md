@@ -80,9 +80,9 @@ Este documento registra las decisiones arquitectónicas tomadas para **El Taller
 
 ---
 
-## Decisiones y Estado de Fases Posteriores (Pendientes de Auditoría)
+## Decisiones y Estado de Fases Posteriores
 
-- **Persistencia y Catálogo (Issue #2)**: Esquema relacional, inmutabilidad de DEFAULT, aislamiento transaccional y snapshots. *Estado: Pendiente de especificación y auditoría de Issue #2.*
+- **Persistencia y Catálogo (Issue #2)**: Esquema relacional v2, inmutabilidad de DEFAULT, aislamiento transaccional, snapshots y migración fail-closed implementados y cubiertos por suites de pruebas R1–R7, P1–P3 y M1–M3. *Estado: Implementado y verificado por Antigravity; pendiente de reauditoría de conformidad por Codex y aprobación final de Orca.*
 - **FSM y Conversación (Issue #3)**: Máquina de estados conversacional, consumo de borradores en confirmación y resolución de referencias. *Estado: Pendiente de Issue #3.*
 - **Medios y Formatos de Imagen (Issue #4)**: Procesamiento de WebP mediante Thumbnailator y proveedor ImageIO. *Estado: Pendiente de Issue #4.*
 - **Audio, STT y TTS (Issue #5)**: Integración con Groq Whisper, síntesis Edge TTS y parametrización de modelos/voces. *Estado: Pendiente de Issue #5.*

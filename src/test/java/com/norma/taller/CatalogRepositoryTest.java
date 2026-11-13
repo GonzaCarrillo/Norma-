@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -114,16 +115,37 @@ public class CatalogRepositoryTest {
 
             // Mutaciones en A no deben afectar a B ni a DEFAULT
             catalog.apply(sessA, new IntentParser.Intent("PRICE", 1, "Cuenco rústico", 99999, null));
+            catalog.apply(sessA, new IntentParser.Intent("IMAGE", 1, null, null, "/assets/cuenco_custom.webp"));
             catalog.apply(sessA, new IntentParser.Intent("SOLD", 2, null, 0, null));
+            catalog.apply(sessA, new IntentParser.Intent("CREATE", null, "Pieza Nueva A9", 45000, "/assets/a9.webp"));
 
             assertEquals(99999, catalog.all(sessA).get(0).price());
+            assertEquals("/assets/cuenco_custom.webp", catalog.all(sessA).get(0).imageUrl());
             assertTrue(catalog.all(sessA).get(1).sold());
+            assertEquals(9, catalog.all(sessA).size());
 
-            assertEquals(15000, catalog.all(sessB).get(0).price());
-            assertFalse(catalog.all(sessB).get(1).sold());
+            // B debe permanecer completamente intacto con sus 8 piezas originales
+            List<Catalog.Product> prodsBAfter = catalog.all(sessB);
+            assertEquals(8, prodsBAfter.size());
+            for (int i = 0; i < 8; i++) {
+                assertEquals(defaultProducts.get(i).pieceNumber(), prodsBAfter.get(i).pieceNumber());
+                assertEquals(defaultProducts.get(i).title(), prodsBAfter.get(i).title());
+                assertEquals(defaultProducts.get(i).price(), prodsBAfter.get(i).price());
+                assertEquals(defaultProducts.get(i).imageUrl(), prodsBAfter.get(i).imageUrl());
+                assertEquals(defaultProducts.get(i).sold(), prodsBAfter.get(i).sold());
+            }
 
-            Catalog.Product def0 = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id='DEFAULT' AND piece_number=1").query(Catalog.Product.class).single();
-            assertEquals(15000, def0.price());
+            // DEFAULT debe permanecer 100% idéntico al original en sus 8 piezas
+            List<Catalog.Product> defaultAfter = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id='DEFAULT' ORDER BY piece_number").query(Catalog.Product.class).list();
+            assertEquals(8, defaultAfter.size());
+            for (int i = 0; i < 8; i++) {
+                assertEquals(defaultProducts.get(i).pieceNumber(), defaultAfter.get(i).pieceNumber());
+                assertEquals(defaultProducts.get(i).title(), defaultAfter.get(i).title());
+                assertEquals(defaultProducts.get(i).price(), defaultAfter.get(i).price());
+                assertEquals(defaultProducts.get(i).imageUrl(), defaultAfter.get(i).imageUrl());
+                assertEquals(defaultProducts.get(i).sold(), defaultAfter.get(i).sold());
+            }
+
         });
     }
 
@@ -154,9 +176,24 @@ public class CatalogRepositoryTest {
             catalog.ensure(sess);
             assertEquals(0, catalog.all(sess).size());
 
-            // reset explicito si repone 8 piezas
+            // Marcar todas como vendidas en sesion independiente: catalogo disponible queda vacio sin reseed
+            String sessSoldAll = "session_test_r2_sold";
+            catalog.ensure(sessSoldAll);
+            for (int i = 1; i <= 8; i++) {
+                catalog.apply(sessSoldAll, new IntentParser.Intent("SOLD", i, null, 0, null));
+            }
+            List<Catalog.Product> allItems = catalog.all(sessSoldAll);
+            assertEquals(8, allItems.size());
+            assertTrue(allItems.stream().allMatch(Catalog.Product::sold), "Todas las piezas deben estar sold=true");
+            // ensure repetido sobre sesion donde todo esta vendido no altera nada ni re-siembra
+            catalog.ensure(sessSoldAll);
+            assertEquals(8, catalog.all(sessSoldAll).size());
+            assertTrue(catalog.all(sessSoldAll).stream().allMatch(Catalog.Product::sold));
+
+            // reset explicito si repone 8 piezas disponibles
             catalog.reset(sess);
             assertEquals(8, catalog.all(sess).size());
+
         });
     }
 
@@ -170,15 +207,20 @@ public class CatalogRepositoryTest {
         contextRunner.run(context -> {
             Catalog catalog = context.getBean(Catalog.class);
             DataSource ds = context.getBean(DataSource.class);
+            JdbcClient db = context.getBean(JdbcClient.class);
 
-            List<String> invalidIds = List.of(
+            // Capturar estado original exacto de DEFAULT
+            List<Catalog.Product> defaultInitial = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id='DEFAULT' ORDER BY piece_number").query(Catalog.Product.class).list();
+            assertEquals(8, defaultInitial.size());
+
+            List<String> invalidIds = new ArrayList<>(List.of(
                     "DEFAULT",
                     "short",
                     "this_is_an_extremely_long_session_identifier_that_exceeds_the_eighty_characters_limit_by_far_1234567890",
                     "invalid*char",
                     "with space",
                     "bad#session"
-            );
+            ));
 
             for (String bad : invalidIds) {
                 assertThrows(IllegalArgumentException.class, () -> catalog.ensure(bad), "ensure debe rechazar " + bad);
@@ -187,12 +229,29 @@ public class CatalogRepositoryTest {
                 assertThrows(IllegalArgumentException.class, () -> catalog.conversation(bad, "IDLE", null, null), "conversation debe rechazar " + bad);
                 assertThrows(IllegalArgumentException.class, () -> catalog.snapshot(bad, "{}"), "snapshot debe rechazar " + bad);
                 assertThrows(IllegalArgumentException.class, () -> catalog.reset(bad), "reset debe rechazar " + bad);
+                assertThrows(IllegalArgumentException.class, () -> catalog.insert(bad, 99, "P99", 1000, "/99.webp", false), "insert debe rechazar " + bad);
+                assertThrows(IllegalArgumentException.class, () -> catalog.apply(bad, new IntentParser.Intent("CREATE", null, "P99", 1000, "/99.webp")), "apply debe rechazar " + bad);
+                assertThrows(IllegalArgumentException.class, () -> catalog.restore(bad, List.of()), "restore debe rechazar " + bad);
             }
 
-            // SQL directo contra DEFAULT debe disparar triggers RAISE(ABORT,...)
+            // Validacion explicita de null
+            assertThrows(IllegalArgumentException.class, () -> catalog.ensure(null));
+            assertThrows(IllegalArgumentException.class, () -> catalog.all(null));
+            assertThrows(IllegalArgumentException.class, () -> catalog.session(null));
+            assertThrows(IllegalArgumentException.class, () -> catalog.conversation(null, "IDLE", null, null));
+            assertThrows(IllegalArgumentException.class, () -> catalog.snapshot(null, "{}"));
+            assertThrows(IllegalArgumentException.class, () -> catalog.reset(null));
+            assertThrows(IllegalArgumentException.class, () -> catalog.insert(null, 99, "P99", 1000, "/99.webp", false));
+            assertThrows(IllegalArgumentException.class, () -> catalog.apply(null, new IntentParser.Intent("CREATE", null, "P99", 1000, "/99.webp")));
+            assertThrows(IllegalArgumentException.class, () -> catalog.restore(null, List.of()));
+
+            // Intento de mover session_id hacia DEFAULT en products via SQL
+            String normalSess = "session_test_r5_norm";
+            catalog.ensure(normalSess);
             try (Connection conn = ds.getConnection();
                  Statement st = conn.createStatement()) {
 
+                // Intentos SQL directos contra DEFAULT disparan triggers protect_default_*
                 assertThrows(SQLException.class, () -> st.execute("INSERT INTO sessions(id, state, next_number) VALUES('DEFAULT', 'IDLE', 9)"));
                 assertThrows(SQLException.class, () -> st.execute("UPDATE sessions SET state='AWAITING_DETAILS' WHERE id='DEFAULT'"));
                 assertThrows(SQLException.class, () -> st.execute("DELETE FROM sessions WHERE id='DEFAULT'"));
@@ -200,6 +259,22 @@ public class CatalogRepositoryTest {
                 assertThrows(SQLException.class, () -> st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('DEFAULT', 9, 'P9', 10000, '/9.webp', 0)"));
                 assertThrows(SQLException.class, () -> st.execute("UPDATE products SET price=9999 WHERE session_id='DEFAULT' AND piece_number=1"));
                 assertThrows(SQLException.class, () -> st.execute("DELETE FROM products WHERE session_id='DEFAULT' AND piece_number=1"));
+
+                // Intentar actualizar session_id de un producto existente hacia DEFAULT debe fallar
+                assertThrows(SQLException.class, () -> st.execute("UPDATE products SET session_id='DEFAULT' WHERE session_id='" + normalSess + "' AND piece_number=1"));
+            }
+
+            // Comparacion integral final de DEFAULT: debe permanecer 100% identico al original
+            List<Catalog.Product> defaultFinal = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id='DEFAULT' ORDER BY piece_number").query(Catalog.Product.class).list();
+            assertEquals(8, defaultFinal.size());
+            for (int i = 0; i < 8; i++) {
+                assertEquals(defaultInitial.get(i).id(), defaultFinal.get(i).id());
+                assertEquals(defaultInitial.get(i).sessionId(), defaultFinal.get(i).sessionId());
+                assertEquals(defaultInitial.get(i).pieceNumber(), defaultFinal.get(i).pieceNumber());
+                assertEquals(defaultInitial.get(i).title(), defaultFinal.get(i).title());
+                assertEquals(defaultInitial.get(i).price(), defaultFinal.get(i).price());
+                assertEquals(defaultInitial.get(i).imageUrl(), defaultFinal.get(i).imageUrl());
+                assertEquals(defaultInitial.get(i).sold(), defaultFinal.get(i).sold());
             }
         });
     }
@@ -208,6 +283,7 @@ public class CatalogRepositoryTest {
      * R7 Repository:
      * Dos tareas sincronizadas con barrera invocan ensure del mismo id: una sesión, ocho productos.
      * Varias altas concurrentes en una sesión obtienen números únicos, contador final coherente; otra sesión no cambia.
+     * Executor cerrado en bloque finally.
      */
     @Test
     void testR7_concurrentEnsureAndIsolation() throws Exception {
@@ -215,29 +291,91 @@ public class CatalogRepositoryTest {
             Catalog catalog = context.getBean(Catalog.class);
             String sharedSess = "session_concurrent_sync";
 
+            // Fase 1: ensure concurrente con barrera
             int threads = 4;
             ExecutorService executor = Executors.newFixedThreadPool(threads);
-            CyclicBarrier barrier = new CyclicBarrier(threads);
-            List<Future<?>> futures = new ArrayList<>();
+            try {
+                CyclicBarrier barrier = new CyclicBarrier(threads);
+                List<Future<?>> futures = new ArrayList<>();
 
-            for (int i = 0; i < threads; i++) {
-                futures.add(executor.submit(() -> {
-                    try {
-                        barrier.await(5, TimeUnit.SECONDS);
-                        catalog.ensure(sharedSess);
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
-                }));
+                for (int i = 0; i < threads; i++) {
+                    futures.add(executor.submit(() -> {
+                        try {
+                            barrier.await(5, TimeUnit.SECONDS);
+                            catalog.ensure(sharedSess);
+                        } catch (Exception e) {
+                            throw new CompletionException(e);
+                        }
+                    }));
+                }
+
+                for (Future<?> f : futures) {
+                    assertDoesNotThrow(() -> f.get(10, TimeUnit.SECONDS));
+                }
+
+                assertEquals(8, catalog.all(sharedSess).size());
+                assertEquals(9, catalog.session(sharedSess).nextNumber());
+            } finally {
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
 
-            for (Future<?> f : futures) {
-                assertDoesNotThrow(() -> f.get(10, TimeUnit.SECONDS));
-            }
-            executor.shutdown();
+            // Fase 2: Altas concurrentes (CREATE) en sharedSess verificando unicidad y sesion B aislada
+            String sessB = "session_concurrent_sess_b";
+            catalog.ensure(sessB);
+            List<Catalog.Product> prodsBBefore = catalog.all(sessB);
+            assertEquals(8, prodsBBefore.size());
 
-            assertEquals(8, catalog.all(sharedSess).size());
-            assertEquals(9, catalog.session(sharedSess).nextNumber());
+            int createThreads = 5;
+            ExecutorService createExecutor = Executors.newFixedThreadPool(createThreads);
+            try {
+                CyclicBarrier createBarrier = new CyclicBarrier(createThreads);
+                List<Future<?>> createFutures = new ArrayList<>();
+
+                for (int i = 0; i < createThreads; i++) {
+                    final int idx = i;
+                    createFutures.add(createExecutor.submit(() -> {
+                        try {
+                            createBarrier.await(5, TimeUnit.SECONDS);
+                            catalog.apply(sharedSess, new IntentParser.Intent("CREATE", null, "Pieza Concurrente " + idx, 20000 + idx * 1000, "/assets/c" + idx + ".webp"));
+                        } catch (Exception e) {
+                            throw new CompletionException(e);
+                        }
+                    }));
+                }
+
+                for (Future<?> f : createFutures) {
+                    assertDoesNotThrow(() -> f.get(10, TimeUnit.SECONDS));
+                }
+
+                // Total de piezas en sharedSess: 8 iniciales + 5 altas = 13 piezas
+                List<Catalog.Product> sharedProds = catalog.all(sharedSess);
+                assertEquals(13, sharedProds.size());
+
+                // Numeros de pieza asignados deben ser unicos y cubrir 9..13
+                Set<Integer> pieceNumbers = sharedProds.stream().map(Catalog.Product::pieceNumber).collect(Collectors.toSet());
+                assertEquals(13, pieceNumbers.size(), "Cada pieza debe tener un piece_number unico");
+                for (int n = 1; n <= 13; n++) {
+                    assertTrue(pieceNumbers.contains(n), "Debe contener piece_number=" + n);
+                }
+
+                // El contador next_number debe ser exactamente 14
+                assertEquals(14, catalog.session(sharedSess).nextNumber());
+
+                // Sesion B debe permanecer completamente intacta
+                List<Catalog.Product> prodsBAfter = catalog.all(sessB);
+                assertEquals(8, prodsBAfter.size());
+                assertEquals(9, catalog.session(sessB).nextNumber());
+                for (int i = 0; i < 8; i++) {
+                    assertEquals(prodsBBefore.get(i).pieceNumber(), prodsBAfter.get(i).pieceNumber());
+                    assertEquals(prodsBBefore.get(i).title(), prodsBAfter.get(i).title());
+                    assertEquals(prodsBBefore.get(i).price(), prodsBAfter.get(i).price());
+                    assertEquals(prodsBBefore.get(i).sold(), prodsBAfter.get(i).sold());
+                }
+            } finally {
+                createExecutor.shutdown();
+                assertTrue(createExecutor.awaitTermination(5, TimeUnit.SECONDS));
+            }
         });
     }
 
@@ -311,6 +449,32 @@ public class CatalogRepositoryTest {
             String sess = "session_test_r4_val";
             catalog.ensure(sess);
 
+            // Verificacion de targeting exacto: PRICE solo cambia price, preservando title, imageUrl, sold, pieceNumber
+            Catalog.Product p1Before = catalog.all(sess).get(0);
+            catalog.apply(sess, new IntentParser.Intent("PRICE", 1, null, 17500, null));
+            Catalog.Product p1AfterPrice = catalog.all(sess).get(0);
+            assertEquals(17500, p1AfterPrice.price());
+            assertEquals(p1Before.title(), p1AfterPrice.title());
+            assertEquals(p1Before.imageUrl(), p1AfterPrice.imageUrl());
+            assertEquals(p1Before.sold(), p1AfterPrice.sold());
+            assertEquals(p1Before.pieceNumber(), p1AfterPrice.pieceNumber());
+
+            // IMAGE solo cambia imageUrl, preservando los demas campos
+            catalog.apply(sess, new IntentParser.Intent("IMAGE", 1, null, null, "/assets/new_p1.webp"));
+            Catalog.Product p1AfterImg = catalog.all(sess).get(0);
+            assertEquals("/assets/new_p1.webp", p1AfterImg.imageUrl());
+            assertEquals(17500, p1AfterImg.price());
+            assertEquals(p1Before.title(), p1AfterImg.title());
+            assertEquals(p1Before.sold(), p1AfterImg.sold());
+
+            // SOLD solo cambia sold a true, preservando los demas campos
+            catalog.apply(sess, new IntentParser.Intent("SOLD", 1, null, null, null));
+            Catalog.Product p1AfterSold = catalog.all(sess).get(0);
+            assertTrue(p1AfterSold.sold());
+            assertEquals(17500, p1AfterSold.price());
+            assertEquals("/assets/new_p1.webp", p1AfterSold.imageUrl());
+            assertEquals(p1Before.title(), p1AfterSold.title());
+
             // Destino inexistente
             assertThrows(IllegalArgumentException.class, () ->
                     catalog.apply(sess, new IntentParser.Intent("PRICE", 999, null, 10000, null)));
@@ -348,25 +512,39 @@ public class CatalogRepositoryTest {
         });
     }
 
+
     /**
      * R6 Repository:
      * restore mixto con Product de B o números duplicados falla antes de borrar A. Lista vacía válida.
      * Inyectar fallo SQL después del primer insert (trigger temporal solo en fixture) durante ensure, restore y reset;
      * ni fila nueva parcial ni borrado parcial ni limpieza de borrador/cambio de contador.
+     * Comprobación desde nueva transacción/conexión independiente.
      */
     @Test
     void testR6_restoreAtomicValidationAndFailureRollback() {
         contextRunner.run(context -> {
             Catalog catalog = context.getBean(Catalog.class);
+            DataSource ds = context.getBean(DataSource.class);
+            JdbcClient db = context.getBean(JdbcClient.class);
+
             String sessA = "session_test_r6_a";
             String sessB = "session_test_r6_b";
             catalog.ensure(sessA);
             catalog.ensure(sessB);
 
+            // Preparar estado de sesion A con borrador y snapshot
+            catalog.conversation(sessA, "AWAITING_DETAILS", "{\"draft\":true}", "/tmp/draft.png");
+            catalog.snapshot(sessA, "[{\"piece\":1}]");
+
+            // Capturar estado previo exacto de A
+            Catalog.Session sABefore = catalog.session(sessA);
+            List<Catalog.Product> prodsABefore = catalog.all(sessA);
+            assertEquals(8, prodsABefore.size());
+
             List<Catalog.Product> prodsB = catalog.all(sessB);
             Catalog.Product itemB = prodsB.get(0);
 
-            // Intentar restore en A con un producto de B debe fallar antes de borrar A
+            // Subcaso 1: Intentar restore en A con un producto de B debe fallar antes de borrar A
             List<Catalog.Product> mixedList = List.of(
                     new Catalog.Product(1, sessA, 1, "Pieza A", 1000, "/a.webp", false),
                     itemB // sesion B
@@ -374,7 +552,7 @@ public class CatalogRepositoryTest {
             assertThrows(IllegalArgumentException.class, () -> catalog.restore(sessA, mixedList));
             assertEquals(8, catalog.all(sessA).size());
 
-            // Lista con numeros duplicados debe fallar antes de borrar A
+            // Subcaso 2: Lista con numeros duplicados debe fallar antes de borrar A
             List<Catalog.Product> dupList = List.of(
                     new Catalog.Product(1, sessA, 1, "Pieza 1", 1000, "/a.webp", false),
                     new Catalog.Product(2, sessA, 1, "Pieza 1bis", 2000, "/b.webp", false)
@@ -382,26 +560,85 @@ public class CatalogRepositoryTest {
             assertThrows(IllegalArgumentException.class, () -> catalog.restore(sessA, dupList));
             assertEquals(8, catalog.all(sessA).size());
 
-            // Inyeccion de fallo SQL en transaccion de Catalog (trigger temporal que falla al insertar pieza #2)
-            DataSource ds = context.getBean(DataSource.class);
+            // Subcaso 3: Fallo SQL inyectado durante restore tras el primer insert
+            // Trigger temporal que falla al insertar piece_number=2
             try (Connection conn = ds.getConnection();
                  Statement st = conn.createStatement()) {
-                st.execute("CREATE TRIGGER test_fail_trigger BEFORE INSERT ON products WHEN NEW.piece_number=2 BEGIN SELECT RAISE(ABORT, 'Simulated DB failure in trigger'); END;");
+                st.execute("CREATE TRIGGER test_fail_trigger_restore BEFORE INSERT ON products WHEN NEW.piece_number=2 BEGIN SELECT RAISE(ABORT, 'Simulated DB failure in trigger'); END;");
             }
 
-            // Restore de lista con pieza #1 y #2 debe revertir por completo (rollback)
             List<Catalog.Product> testList = List.of(
                     new Catalog.Product(0, sessA, 1, "P1", 1000, "/1.webp", false),
                     new Catalog.Product(0, sessA, 2, "P2", 2000, "/2.webp", false)
             );
             assertThrows(Exception.class, () -> catalog.restore(sessA, testList));
-            assertEquals(8, catalog.all(sessA).size(), "Las 8 piezas originales deben permanecer intactas tras rollback");
 
-            // Limpiar trigger temporal
+            // Limpiar trigger de restore
             try (Connection conn = ds.getConnection();
                  Statement st = conn.createStatement()) {
-                st.execute("DROP TRIGGER test_fail_trigger");
+                st.execute("DROP TRIGGER test_fail_trigger_restore");
             }
+
+            // Comprobacion integral desde nueva transaccion: no hay borrado parcial, ni fila nueva parcial, ni alteracion de estado
+            List<Catalog.Product> prodsAAfterRestoreFail = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id=? ORDER BY piece_number").param(sessA).query(Catalog.Product.class).list();
+            assertEquals(8, prodsAAfterRestoreFail.size(), "Las 8 piezas originales deben permanecer intactas tras rollback de restore");
+            for (int i = 0; i < 8; i++) {
+                assertEquals(prodsABefore.get(i).pieceNumber(), prodsAAfterRestoreFail.get(i).pieceNumber());
+                assertEquals(prodsABefore.get(i).title(), prodsAAfterRestoreFail.get(i).title());
+                assertEquals(prodsABefore.get(i).price(), prodsAAfterRestoreFail.get(i).price());
+            }
+            Catalog.Session sAAfterRestoreFail = catalog.session(sessA);
+            assertEquals(sABefore.nextNumber(), sAAfterRestoreFail.nextNumber(), "next_number no debe cambiar tras restore fallido");
+            assertEquals(sABefore.state(), sAAfterRestoreFail.state(), "state no debe cambiar tras restore fallido");
+            assertEquals(sABefore.pending(), sAAfterRestoreFail.pending(), "pending draft no debe cambiar tras restore fallido");
+            assertEquals(sABefore.tempImage(), sAAfterRestoreFail.tempImage(), "tempImage no debe cambiar tras restore fallido");
+            assertEquals(sABefore.snapshot(), sAAfterRestoreFail.snapshot(), "snapshot no debe cambiar tras restore fallido");
+
+            // Subcaso 4: Fallo SQL inyectado durante ensure (clonacion de DEFAULT)
+            // Trigger temporal que falla al insertar la pieza #3 clonada
+            try (Connection conn = ds.getConnection();
+                 Statement st = conn.createStatement()) {
+                st.execute("CREATE TRIGGER test_fail_trigger_ensure BEFORE INSERT ON products WHEN NEW.piece_number=3 AND NEW.session_id='session_fail_ensure' BEGIN SELECT RAISE(ABORT, 'Simulated failure during ensure clone'); END;");
+            }
+
+            String sessFailEnsure = "session_fail_ensure";
+            assertThrows(Exception.class, () -> catalog.ensure(sessFailEnsure));
+
+            // Limpiar trigger
+            try (Connection conn = ds.getConnection();
+                 Statement st = conn.createStatement()) {
+                st.execute("DROP TRIGGER test_fail_trigger_ensure");
+            }
+
+            // Verificar que no se creo fila parcial de sesion ni piezas huerfanas de session_fail_ensure
+            Integer sessCount = db.sql("SELECT count(*) FROM sessions WHERE id=?").param(sessFailEnsure).query(Integer.class).single();
+            assertEquals(0, sessCount, "La fila de sesion no debe existir tras rollback de ensure fallido");
+            Integer prodCount = db.sql("SELECT count(*) FROM products WHERE session_id=?").param(sessFailEnsure).query(Integer.class).single();
+            assertEquals(0, prodCount, "No deben existir productos parciales tras rollback de ensure fallido");
+
+            // Subcaso 5: Fallo SQL inyectado durante reset
+            // Trigger temporal que falla al clonar pieza #4 durante reset
+            try (Connection conn = ds.getConnection();
+                 Statement st = conn.createStatement()) {
+                st.execute("CREATE TRIGGER test_fail_trigger_reset BEFORE INSERT ON products WHEN NEW.piece_number=4 AND NEW.session_id='" + sessA + "' BEGIN SELECT RAISE(ABORT, 'Simulated failure during reset'); END;");
+            }
+
+            assertThrows(Exception.class, () -> catalog.reset(sessA));
+
+            // Limpiar trigger
+            try (Connection conn = ds.getConnection();
+                 Statement st = conn.createStatement()) {
+                st.execute("DROP TRIGGER test_fail_trigger_reset");
+            }
+
+            // Comprobar que reset fallido no borro las piezas de A ni altero contador ni borrador
+            List<Catalog.Product> prodsAAfterResetFail = db.sql("SELECT id,session_id,piece_number,title,price,image_url,sold FROM products WHERE session_id=? ORDER BY piece_number").param(sessA).query(Catalog.Product.class).list();
+            assertEquals(8, prodsAAfterResetFail.size(), "Las piezas originales de A no deben borrarse parcialmente tras reset fallido");
+            Catalog.Session sAAfterResetFail = catalog.session(sessA);
+            assertEquals(sABefore.nextNumber(), sAAfterResetFail.nextNumber(), "next_number no debe cambiar tras reset fallido");
+            assertEquals(sABefore.state(), sAAfterResetFail.state(), "state no debe cambiar tras reset fallido");
+            assertEquals(sABefore.pending(), sAAfterResetFail.pending(), "pending draft no debe limpiarse tras reset fallido");
+            assertEquals(sABefore.snapshot(), sAAfterResetFail.snapshot(), "snapshot no debe limpiarse tras reset fallido");
         });
     }
 
