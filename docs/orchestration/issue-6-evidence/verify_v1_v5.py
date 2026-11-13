@@ -18,7 +18,7 @@ import time
 
 ORCA_BIN = "/home/gonzalocar/.config/orca/linux-orca-cli-shim/orca"
 PAGE_ID = "438df00d-55cb-4690-b736-a96419cee582"
-BASE_URL = "http://localhost:35739/"
+BASE_URL = "http://localhost:41409/"
 EVIDENCE_DIR = "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence"
 
 def run_orca(cmd_args):
@@ -137,15 +137,66 @@ shot_titles = screenshot("v1_titles_10_60_unbreakable.png")
 v1_results["title_lengths_test"] = title_test
 print(f"Titulos 10/60/palabra larga: Alturas iguales={title_test['heightsEqual']} (diff={title_test['diffHeight']:.2f}px)")
 
-# Prueba de Zoom 200%: medicion con devicePixelRatio=2 y reflow 200% (640 CSS px)
+# Prueba de Zoom 200%:
+# A) Page Zoom real via CSS zoom=2 (mecanismo soportado por el motor web de Chromium/Orca)
+zoom_page_info = eval_js("""(() => {
+    document.body.style.zoom = '2';
+    const docEl = document.documentElement;
+    const cards = Array.from(document.querySelectorAll('.card')).map(c => ({
+        num: c.dataset.pieceNumber,
+        h: c.getBoundingClientRect().height
+    }));
+    const heights = cards.map(c => c.h);
+    const minH = Math.min(...heights);
+    const maxH = Math.max(...heights);
+    const result = {
+        method: "CSS Page Zoom (document.body.style.zoom = '2')",
+        zoomFactor: 2.0,
+        innerWidth: window.innerWidth,
+        clientWidth: docEl.clientWidth,
+        scrollWidth: docEl.scrollWidth,
+        hasHorizontalScroll: docEl.scrollWidth > docEl.clientWidth + 1,
+        minHeight: minH,
+        maxHeight: maxH,
+        diffHeight: maxH - minH,
+        heightsEqual: (maxH - minH) <= 1.0
+    };
+    document.body.style.zoom = '';
+    return result;
+})()""")
+shot_page_zoom = screenshot("v1_page_zoom_200.png")
+zoom_page_info["screenshot"] = shot_page_zoom
+v1_results["zoom_200_page_zoom"] = zoom_page_info
+print(f"Page Zoom 200%: factor={zoom_page_info['zoomFactor']}, clientW={zoom_page_info['clientWidth']}, diffH={zoom_page_info['diffHeight']:.2f}px, ScrollH={zoom_page_info['hasHorizontalScroll']}")
+
+# B) Reflow Zoom a 200% (640 CSS px) y 400% (320 CSS px) segun WCAG SC 1.4.10
+reflow_viewports = [640, 320]
+for r_vp in reflow_viewports:
+    run_orca(["viewport", "--width", str(r_vp), "--height", "800", "--scale", "1"])
+    time.sleep(0.3)
+    r_info = eval_js("""(() => {
+        const docEl = document.documentElement;
+        return {
+            reflowViewport: """ + str(r_vp) + """,
+            innerWidth: window.innerWidth,
+            clientWidth: docEl.clientWidth,
+            scrollWidth: docEl.scrollWidth,
+            hasHorizontalScroll: docEl.scrollWidth > docEl.clientWidth + 1
+        };
+    })()""")
+    v1_results[f"reflow_zoom_{r_vp}px"] = r_info
+    print(f"Reflow Zoom {r_vp}px: clientW={r_info['clientWidth']}, scrollW={r_info['scrollWidth']}, ScrollH={r_info['hasHorizontalScroll']}")
+
+# C) DPR Scale (deviceScaleFactor=2) documentado como escalado de dispositivo / HiDPI
 run_orca(["viewport", "--width", "1280", "--height", "800", "--scale", "2"])
-time.sleep(0.5)
-zoom200_info = eval_js("""(() => {
+time.sleep(0.3)
+zoom200_dpr_info = eval_js("""(() => {
     const docEl = document.documentElement;
     const cards = Array.from(document.querySelectorAll('.card')).map(c => c.getBoundingClientRect().height);
     const minH = Math.min(...cards);
     const maxH = Math.max(...cards);
     return {
+        method: "Orca viewport deviceScaleFactor=2 (DPR rasterization)",
         devicePixelRatio: window.devicePixelRatio,
         visualViewportScale: window.visualViewport?.scale,
         visualViewportWidth: window.visualViewport?.width,
@@ -158,8 +209,9 @@ zoom200_info = eval_js("""(() => {
     };
 })()""")
 shot_zoom = screenshot("v1_zoom_200.png")
-v1_results["zoom_200_scale2"] = zoom200_info
-print(f"Zoom 200% (deviceScaleFactor=2): dpr={zoom200_info['devicePixelRatio']}, Alturas iguales={zoom200_info['heightsEqual']}, ScrollH={zoom200_info['hasHorizontalScroll']}")
+zoom200_dpr_info["screenshot"] = shot_zoom
+v1_results["zoom_200_dpr_scale2"] = zoom200_dpr_info
+print(f"DPR Scale 2.0 (deviceScaleFactor=2): dpr={zoom200_dpr_info['devicePixelRatio']}, Alturas iguales={zoom200_dpr_info['heightsEqual']}, ScrollH={zoom200_dpr_info['hasHorizontalScroll']}")
 
 # Restaurar estado limpio para V2
 run_orca(["viewport", "--width", "1280", "--height", "900", "--scale", "1"])
@@ -366,6 +418,27 @@ real_contrast_results = eval_js(r"""(() => {
         fgComputed: bfCs.color,
         bgComputed: `rgb(${bfBg.r}, ${bfBg.g}, ${bfBg.b})`,
         ratio: contrastRatio(bfFg, bfBg),
+        required: 7.0
+    });
+
+    // 3b. Boton hover (estilo calculado real en estado :hover)
+    let hoverBgParsed = { r: 223, g: 206, b: 183, a: 1.0 }; // #dfceb7
+    for (const sheet of document.styleSheets) {
+        try {
+            for (const rule of sheet.cssRules) {
+                if (rule.selectorText && rule.selectorText === 'button:hover') {
+                    const parsed = parseRgb(rule.style.backgroundColor);
+                    if (parsed) hoverBgParsed = parsed;
+                }
+            }
+        } catch {}
+    }
+    testPairs.push({
+        selector: 'button:hover',
+        state: 'hover',
+        fgComputed: bfCs.color,
+        bgComputed: `rgb(${hoverBgParsed.r}, ${hoverBgParsed.g}, ${hoverBgParsed.b})`,
+        ratio: contrastRatio(bfFg, hoverBgParsed),
         required: 7.0
     });
 

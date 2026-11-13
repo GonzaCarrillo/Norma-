@@ -100,16 +100,45 @@
       "title0Length": 10,
       "title1Length": 60
     },
-    "zoom_200_scale2": {
+    "zoom_200_page_zoom": {
+      "clientWidth": 1425,
+      "diffHeight": 0,
+      "hasHorizontalScroll": false,
+      "heightsEqual": true,
+      "innerWidth": 1440,
+      "maxHeight": 1029.953125,
+      "method": "CSS Page Zoom (document.body.style.zoom = '2')",
+      "minHeight": 1029.953125,
+      "scrollWidth": 1425,
+      "zoomFactor": 2,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_page_zoom_200.png"
+    },
+    "reflow_zoom_640px": {
+      "clientWidth": 625,
+      "hasHorizontalScroll": false,
+      "innerWidth": 640,
+      "reflowViewport": 640,
+      "scrollWidth": 625
+    },
+    "reflow_zoom_320px": {
+      "clientWidth": 305,
+      "hasHorizontalScroll": false,
+      "innerWidth": 320,
+      "reflowViewport": 320,
+      "scrollWidth": 305
+    },
+    "zoom_200_dpr_scale2": {
       "clientWidth": 1265,
       "devicePixelRatio": 2,
       "diffHeight": 0,
       "hasHorizontalScroll": false,
       "heightsEqual": true,
+      "method": "Orca viewport deviceScaleFactor=2 (DPR rasterization)",
       "scrollWidth": 1265,
       "visualViewportHeight": 800,
       "visualViewportScale": 1,
-      "visualViewportWidth": 1265
+      "visualViewportWidth": 1265,
+      "screenshot": "/home/gonzalocar/orca/workspaces/Norma-/issue-6-storefront/docs/orchestration/issue-6-evidence/v1_zoom_200.png"
     }
   },
   "V2": {
@@ -271,6 +300,15 @@
         "required": 7,
         "selector": "#font",
         "state": "normal"
+      },
+      {
+        "bgComputed": "rgb(223, 206, 183)",
+        "fgComputed": "rgb(26, 18, 12)",
+        "passed": true,
+        "ratio": 12.018359355399996,
+        "required": 7,
+        "selector": "button:hover",
+        "state": "hover"
       },
       {
         "bgComputed": "rgb(229, 222, 211)",
