@@ -1,0 +1,19 @@
+{
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "mp3",
+            "sample_rate": "24000",
+            "channels": 1,
+            "bits_per_sample": 0
+        }
+    ],
+    "format": {
+        "format_name": "mp3",
+        "duration": "4.392000",
+        "size": "26352",
+        "bit_rate": "48000"
+    }
+}

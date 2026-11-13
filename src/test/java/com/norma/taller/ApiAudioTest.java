@@ -125,7 +125,23 @@ class ApiAudioTest {
     }
 
     @Test
-    void audioConFalloDeSttSimuladoPreservaProductosYSesion() throws Exception {
+    void audioIlegibleGroq400Devuelve400NoPudeEscucharYSesionPreservada() throws Exception {
+        MockMultipartFile corrupto = new MockMultipartFile("audio", "corrupt.webm", "audio/webm", new byte[]{0x12, 0x34, 0x56, 0x78});
+        doThrow(new IllegalArgumentException("No pude escuchar el audio. Probá otra vez o escribime."))
+                .when(mediaService).transcribe(any());
+
+        mockMvc.perform(multipart("/api/bot/message")
+                        .file(corrupto)
+                        .param("sessionId", SESS))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("No pude escuchar el audio")));
+
+        assertEquals("IDLE", catalog.session(SESS).state());
+        assertEquals(8, catalog.all(SESS).size());
+    }
+
+    @Test
+    void audioFalloTranscriptorGroq401o429Devuelve400NoPudeTranscribirYSesionPreservada() throws Exception {
         MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3});
         doThrow(new IllegalArgumentException("No pude transcribir ahora. Probá otra vez o escribime."))
                 .when(mediaService).transcribe(any());

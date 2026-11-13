@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.util.LinkedMultiValueMap;
@@ -47,12 +49,19 @@ public class MediaService {
             factory.setReadTimeout(Duration.ofSeconds(20));
             this.groq = RestClient.builder().baseUrl("https://api.groq.com/openai/v1").requestFactory(factory).build();
         }
-        this.ttsRunner = ttsRunner != null ? ttsRunner : (text, output) -> new ProcessBuilder(
-                "edge-tts",
-                "--voice", "es-AR-TomasNeural",
-                "--text", text,
-                "--write-media", output.toString()
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        this.ttsRunner = ttsRunner != null ? ttsRunner : (text, output) -> {
+            String cmd = "edge-tts";
+            Path localTool = Path.of("target/tts-env/bin/edge-tts").toAbsolutePath();
+            if (Files.isExecutable(localTool)) {
+                cmd = localTool.toString();
+            }
+            return new ProcessBuilder(
+                    cmd,
+                    "--voice", "es-AR-TomasNeural",
+                    "--text", text,
+                    "--write-media", output.toString()
+            ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        };
     }
 
     public String image(MultipartFile file) throws IOException {
@@ -66,7 +75,8 @@ public class MediaService {
         if (audio == null || audio.isEmpty()) {
             throw new IllegalArgumentException("No pude escuchar el audio. Probá otra vez o escribime.");
         }
-        Path temp = Files.createTempFile("norma-audio-", ".webm");
+        Path tempDir = Files.exists(root.resolve(".processing")) ? root.resolve(".processing") : root;
+        Path temp = Files.createTempFile(tempDir, "norma-audio-", ".webm");
         try {
             audio.transferTo(temp);
             var body = new LinkedMultiValueMap<String, Object>();
@@ -84,7 +94,13 @@ public class MediaService {
                 throw new IllegalArgumentException("No pude escuchar el audio. Probá otra vez o escribime.");
             }
             return result.path("text").asText();
-        } catch (org.springframework.web.client.RestClientException e) {
+        } catch (RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            if (status == 400 || status == 422) {
+                throw new IllegalArgumentException("No pude escuchar el audio. Probá otra vez o escribime.");
+            }
+            throw new IllegalArgumentException("No pude transcribir ahora. Probá otra vez o escribime.");
+        } catch (RestClientException e) {
             throw new IllegalArgumentException("No pude transcribir ahora. Probá otra vez o escribime.");
         } finally {
             Files.deleteIfExists(temp);

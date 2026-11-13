@@ -6,9 +6,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -47,8 +50,17 @@ class MediaServiceTest {
         }
     }
 
+    private void assertProcessingDirectoryEmpty() throws IOException {
+        Path processing = root.resolve(".processing");
+        if (Files.exists(processing)) {
+            try (var stream = Files.list(processing)) {
+                assertEquals(0, stream.count(), "El directorio .processing debe quedar limpio sin temporales residuales");
+            }
+        }
+    }
+
     // ==========================================
-    // STT Tests (A1 - A3 y Casos Borde)
+    // STT Tests (A1 - A3, H2 y Casos Borde)
     // ==========================================
 
     @Test
@@ -65,6 +77,7 @@ class MediaServiceTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> conClave.transcribe(null));
         assertTrue(e.getMessage().contains("No pude escuchar el audio"), e.getMessage());
+        assertProcessingDirectoryEmpty();
     }
 
     @Test
@@ -74,10 +87,11 @@ class MediaServiceTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> conClave.transcribe(vacio));
         assertTrue(e.getMessage().contains("No pude escuchar el audio"), e.getMessage());
+        assertProcessingDirectoryEmpty();
     }
 
     @Test
-    void transcribeConGroqFallandoLanzaIllegalArgumentExceptionMencionandoNoPudeTranscribir() throws Exception {
+    void transcribeConAudioCorruptoGroq400LanzaNoPudeEscucharYBorraTemporal() throws Exception {
         RestClient mockGroq = mock(RestClient.class);
         RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
         RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
@@ -86,13 +100,116 @@ class MediaServiceTest {
         when(mockGroq.post()).thenReturn(uriSpec);
         when(uriSpec.uri(anyString())).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(JsonNode.class)).thenThrow(new RestClientException("Connection timed out"));
+        when(responseSpec.body(JsonNode.class)).thenThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request: corrupted audio header"));
+
+        MediaService svc = new MediaService(root.toString(), "sk-valid-key", mockGroq, null);
+        MockMultipartFile corrupto = new MockMultipartFile("audio", "corrupt.webm", "audio/webm", new byte[]{0x12, 0x34, 0x56, 0x78});
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(corrupto));
+        assertEquals("No pude escuchar el audio. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
+    }
+
+    @Test
+    void transcribeConAudioIlegibleGroq422LanzaNoPudeEscucharYBorraTemporal() throws Exception {
+        RestClient mockGroq = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        when(mockGroq.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(JsonNode.class)).thenThrow(new HttpClientErrorException(HttpStatus.UNPROCESSABLE_ENTITY, "Unprocessable Entity: unreadable audio payload"));
+
+        MediaService svc = new MediaService(root.toString(), "sk-valid-key", mockGroq, null);
+        MockMultipartFile corrupto = new MockMultipartFile("audio", "corrupt.webm", "audio/webm", new byte[]{(byte) 0xFF, (byte) 0xEE, (byte) 0xDD});
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(corrupto));
+        assertEquals("No pude escuchar el audio. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
+    }
+
+    @Test
+    void transcribeConGroq401NoAutorizadoLanzaNoPudeTranscribirYBorraTemporal() throws Exception {
+        RestClient mockGroq = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        when(mockGroq.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(JsonNode.class)).thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED, "Unauthorized"));
+
+        MediaService svc = new MediaService(root.toString(), "sk-invalid-key", mockGroq, null);
+        MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3, 4});
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(audio));
+        assertEquals("No pude transcribir ahora. Probá otra vez o escribime.", e.getMessage());
+        assertFalse(e.getMessage().toLowerCase().contains("groq"), "No debe exponer al proveedor externo");
+        assertFalse(e.getMessage().toLowerCase().contains("whisper"), "No debe exponer al proveedor externo");
+        assertProcessingDirectoryEmpty();
+    }
+
+    @Test
+    void transcribeConGroq429CuotaLanzaNoPudeTranscribirYBorraTemporal() throws Exception {
+        RestClient mockGroq = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        when(mockGroq.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(JsonNode.class)).thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded"));
 
         MediaService svc = new MediaService(root.toString(), "sk-valid-key", mockGroq, null);
         MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3, 4});
 
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(audio));
-        assertTrue(e.getMessage().contains("No pude transcribir ahora"), e.getMessage());
+        assertEquals("No pude transcribir ahora. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
+    }
+
+    @Test
+    void transcribeConGroq500ErrorServidorLanzaNoPudeTranscribirYBorraTemporal() throws Exception {
+        RestClient mockGroq = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        when(mockGroq.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(JsonNode.class)).thenThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error"));
+
+        MediaService svc = new MediaService(root.toString(), "sk-valid-key", mockGroq, null);
+        MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3, 4});
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(audio));
+        assertEquals("No pude transcribir ahora. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
+    }
+
+    @Test
+    void transcribeConTimeoutRedLanzaNoPudeTranscribirYBorraTemporal() throws Exception {
+        RestClient mockGroq = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, Answers.RETURNS_SELF);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class, Answers.RETURNS_SELF);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        when(mockGroq.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(JsonNode.class)).thenThrow(new ResourceAccessException("Connection timed out after 5000ms"));
+
+        MediaService svc = new MediaService(root.toString(), "sk-valid-key", mockGroq, null);
+        MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3, 4});
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(audio));
+        assertEquals("No pude transcribir ahora. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
     }
 
     @Test
@@ -114,7 +231,8 @@ class MediaServiceTest {
         MockMultipartFile audio = new MockMultipartFile("audio", "nota.webm", "audio/webm", new byte[]{1, 2, 3, 4});
 
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> svc.transcribe(audio));
-        assertTrue(e.getMessage().contains("No pude escuchar el audio"), e.getMessage());
+        assertEquals("No pude escuchar el audio. Probá otra vez o escribime.", e.getMessage());
+        assertProcessingDirectoryEmpty();
     }
 
     @Test
@@ -137,10 +255,11 @@ class MediaServiceTest {
 
         String transcript = svc.transcribe(audio);
         assertEquals("Publicá Plato a 15000", transcript);
+        assertProcessingDirectoryEmpty();
     }
 
     // ==========================================
-    // TTS Tests (A4, A5 y Determinismo)
+    // TTS Tests (A4, A5, H3 y Determinismo)
     // ==========================================
 
     @Test
@@ -264,7 +383,7 @@ class MediaServiceTest {
     }
 
     @Test
-    void speakExitosoDevuelveUrlMediaYConservaArchivo() throws Exception {
+    void speakExitosoConRunnerSimuladoConservaArchivo() throws Exception {
         MediaService.VoiceProcessRunner runner = (text, output) -> {
             Files.write(output, new byte[]{0x49, 0x44, 0x33, 1, 2, 3});
             Process p = mock(Process.class);
@@ -283,5 +402,41 @@ class MediaServiceTest {
         Path generado = root.resolve(url.substring("/media/".length()));
         assertTrue(Files.exists(generado));
         assertTrue(Files.size(generado) > 0);
+    }
+
+    @Test
+    void speakExitosoConProveedorRealGeneraMp3ReproducibleSiDisponible() throws Exception {
+        Path localTool = Paths.get("target/tts-env/bin/edge-tts").toAbsolutePath();
+        boolean toolAvailable = Files.isExecutable(localTool);
+        if (!toolAvailable) {
+            try {
+                Process check = new ProcessBuilder("which", "edge-tts").start();
+                toolAvailable = check.waitFor() == 0;
+            } catch (Exception ignored) {
+            }
+        }
+        if (!toolAvailable) {
+            return; // Entorno sin binario edge-tts; cubierto por tests deterministas
+        }
+
+        MediaService svc = new MediaService(root.toString(), "");
+        String url = svc.speak("Hola Norma, esto es una prueba de síntesis real.");
+        assertNotNull(url, "speak con proveedor real debe devolver URL");
+        assertTrue(url.startsWith("/media/"));
+        assertTrue(url.endsWith(".mp3"));
+
+        Path mp3 = root.resolve(url.substring("/media/".length()));
+        assertTrue(Files.exists(mp3), "El archivo MP3 debe existir en root");
+        long size = Files.size(mp3);
+        assertTrue(size > 500, "El MP3 debe contener datos de audio reales (tamaño: " + size + ")");
+
+        byte[] header = new byte[3];
+        try (var is = Files.newInputStream(mp3)) {
+            int read = is.read(header);
+            assertEquals(3, read);
+            boolean isId3 = header[0] == 'I' && header[1] == 'D' && header[2] == '3';
+            boolean isMpegSync = (header[0] & 0xFF) == 0xFF && (header[1] & 0xE0) == 0xE0;
+            assertTrue(isId3 || isMpegSync, "El archivo debe tener cabecera válida MP3");
+        }
     }
 }
