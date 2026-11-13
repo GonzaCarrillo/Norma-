@@ -11,7 +11,7 @@ import org.springframework.http.*;
 @RestController
 public class Api {
  private final Catalog catalog;private final BotEngine bot;private final MediaService media;
- private final Map<String,CopyOnWriteArrayList<SseEmitter>> streams=new ConcurrentHashMap<>();
+ final Map<String,CopyOnWriteArrayList<SseEmitter>> streams=new ConcurrentHashMap<>();
  public Api(Catalog c,BotEngine b,MediaService m){catalog=c;bot=b;media=m;}
  @GetMapping("/api/ping") public String ping(){return "PONG";}
  @GetMapping("/api/products") public List<Catalog.Product> products(@RequestParam String sessionId){catalog.ensure(sessionId);return catalog.all(sessionId).stream().filter(p->!p.sold()).toList();}
@@ -32,14 +32,38 @@ public class Api {
  }
  @GetMapping(value="/api/catalog/stream",produces=MediaType.TEXT_EVENT_STREAM_VALUE)
  public SseEmitter stream(@RequestParam String sessionId){
- catalog.ensure(sessionId);var emitter=new SseEmitter(300000L);var list=streams.computeIfAbsent(sessionId,k->new CopyOnWriteArrayList<>());
- if(list.size()>=5)throw new IllegalArgumentException("Ya hay varias ventanas abiertas para esta sesión.");
- list.add(emitter);Runnable cleanup=()->{list.remove(emitter);if(list.isEmpty())streams.remove(sessionId,list);};
- emitter.onCompletion(cleanup);emitter.onTimeout(()->{cleanup.run();emitter.complete();});emitter.onError(e->cleanup.run());
+ catalog.ensure(sessionId);var emitter=new SseEmitter(300000L);
+ streams.compute(sessionId,(k,currentList)->{
+  var list=currentList!=null?currentList:new CopyOnWriteArrayList<SseEmitter>();
+  if(list.size()>=5)throw new IllegalArgumentException("Ya hay varias ventanas abiertas para esta sesión.");
+  list.add(emitter);
+  return list;
+ });
+ Runnable cleanup=()->removeEmitter(sessionId,emitter);
+ emitter.onCompletion(cleanup);
+ emitter.onTimeout(()->{cleanup.run();try{emitter.complete();}catch(Exception ignored){}});
+ emitter.onError(e->cleanup.run());
  try{emitter.send(SseEmitter.event().name("catalog-update").data("conectado"));}catch(IOException e){cleanup.run();}
  return emitter;
  }
- void publish(String id){for(var e:streams.getOrDefault(id,new CopyOnWriteArrayList<>()))try{e.send(SseEmitter.event().name("catalog-update").data("actualizado"));}catch(Exception ex){e.complete();}}
+ void removeEmitter(String sessionId,SseEmitter emitter){
+  streams.computeIfPresent(sessionId,(k,list)->{
+   list.remove(emitter);
+   return list.isEmpty()?null:list;
+  });
+ }
+ void publish(String id){
+  var list=streams.get(id);
+  if(list==null)return;
+  for(var e:list){
+   try{
+    e.send(SseEmitter.event().name("catalog-update").data("actualizado"));
+   }catch(Exception ex){
+    removeEmitter(id,e);
+    try{e.complete();}catch(Exception ignored){}
+   }
+  }
+ }
 }
 @Configuration
 class MediaConfig implements WebMvcConfigurer{

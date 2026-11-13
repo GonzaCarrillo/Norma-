@@ -1,0 +1,2 @@
+suites=17 tests=197 failures=0 errors=0 skipped=0
+basedir=/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa-sse.rlpc3A/export
