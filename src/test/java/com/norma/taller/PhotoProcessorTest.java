@@ -2,14 +2,16 @@ package com.norma.taller;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
-import java.awt.image.IndexColorModel;
+import java.awt.color.ColorSpace;
+import java.awt.image.*;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
-import javax.imageio.ImageIO;
+import javax.imageio.*;
+import javax.imageio.stream.ImageOutputStream;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
@@ -52,6 +54,38 @@ class PhotoProcessorTest {
         assertNotNull(decoded);
         assertEquals(800, decoded.getWidth());
         assertEquals(600, decoded.getHeight());
+    }
+
+    @Test
+    void testV1_ProgressiveJpeg_Accepted() throws Exception {
+        BufferedImage img = new BufferedImage(400, 300, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(0, 0, 400, 300);
+        g.setColor(Color.ORANGE);
+        g.fillOval(100, 50, 200, 200);
+        g.dispose();
+
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("JPEG");
+        ImageWriter writer = writers.next();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+            writer.setOutput(ios);
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            param.setProgressiveMode(ImageWriteParam.MODE_DEFAULT);
+            writer.write(null, new IIOImage(img, null, null), param);
+        }
+        writer.dispose();
+
+        byte[] progJpeg = baos.toByteArray();
+        MockMultipartFile file = new MockMultipartFile("image", "prog.jpg", "image/jpeg", progJpeg);
+        String url = processor.process(file);
+        assertNotNull(url);
+
+        Path saved = uploadsRoot.resolve(url.substring("/media/".length()));
+        BufferedImage out = ImageIO.read(saved.toFile());
+        assertEquals(800, out.getWidth());
+        assertEquals(600, out.getHeight());
     }
 
     @Test
@@ -123,7 +157,6 @@ class PhotoProcessorTest {
         IllegalArgumentException exGarbage = assertThrows(IllegalArgumentException.class, () -> processor.process(garbage));
         assertEquals("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.", exGarbage.getMessage());
 
-        // Verificar que no queden temporales en staging
         assertEquals(0, countFiles(staging));
     }
 
@@ -150,7 +183,6 @@ class PhotoProcessorTest {
     void testV2_AnimatedPng_Rejected() throws Exception {
         Path staging = uploadsRoot.resolve(".processing");
 
-        // Construir PNG mínimo con chunk acTL
         byte[] pngValid = createTestImageBytes("PNG", 100, 100, Color.ORANGE);
         byte[] pngAnim = injectPngChunk(pngValid, "acTL", new byte[]{0, 0, 0, 1, 0, 0, 0, 0});
 
@@ -165,7 +197,6 @@ class PhotoProcessorTest {
     void testV2_AnimatedWebP_Rejected() {
         Path staging = uploadsRoot.resolve(".processing");
 
-        // Construir WebP con FourCC ANIM
         ByteBuffer bb = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN);
         bb.put(new byte[]{'R', 'I', 'F', 'F'});
         bb.putInt(24);
@@ -185,7 +216,7 @@ class PhotoProcessorTest {
     void testV2_ExcessiveOrCorruptedExif_Rejected() throws Exception {
         Path staging = uploadsRoot.resolve(".processing");
 
-        // EXIF de más de 256 KiB
+        // EXIF > 256 KiB
         byte[] hugeExif = new byte[262145];
         byte[] pngValid = createTestImageBytes("PNG", 100, 100, Color.GREEN);
         byte[] pngHugeExif = injectPngChunk(pngValid, "eXIf", hugeExif);
@@ -194,12 +225,41 @@ class PhotoProcessorTest {
                 () -> processor.process(new MockMultipartFile("image", "huge_exif.png", "image/png", pngHugeExif)));
         assertEquals("La foto contiene metadatos dañados o no soportados.", ex.getMessage());
 
-        // EXIF corrupto (datos inválidos en eXIf)
+        // EXIF corrupto
         byte[] corruptExif = new byte[]{'I', 'I', 42, 0, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
         byte[] pngCorruptExif = injectPngChunk(pngValid, "eXIf", corruptExif);
         IllegalArgumentException ex2 = assertThrows(IllegalArgumentException.class,
                 () -> processor.process(new MockMultipartFile("image", "corrupt_exif.png", "image/png", pngCorruptExif)));
         assertEquals("La foto contiene metadatos dañados o no soportados.", ex2.getMessage());
+
+        assertEquals(0, countFiles(staging));
+    }
+
+    @Test
+    void testV2_16BitPng_Rejected() throws Exception {
+        Path staging = uploadsRoot.resolve(".processing");
+
+        BufferedImage img16 = new BufferedImage(100, 100, BufferedImage.TYPE_USHORT_GRAY);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(img16, "PNG", baos);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> processor.process(new MockMultipartFile("image", "16bit.png", "image/png", baos.toByteArray())));
+        assertEquals("Mandame una foto estática JPEG, PNG o WebP válida.", ex.getMessage());
+
+        assertEquals(0, countFiles(staging));
+    }
+
+    @Test
+    void testV2_TruncatedImageData_Rejected() throws Exception {
+        Path staging = uploadsRoot.resolve(".processing");
+
+        byte[] validJpeg = createTestImageBytes("JPEG", 200, 200, Color.CYAN);
+        byte[] truncated = Arrays.copyOf(validJpeg, validJpeg.length / 2);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> processor.process(new MockMultipartFile("image", "trunc.jpg", "image/jpeg", truncated)));
+        assertEquals("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.", ex.getMessage());
 
         assertEquals(0, countFiles(staging));
     }
@@ -210,7 +270,6 @@ class PhotoProcessorTest {
 
     @Test
     void testL1_SizeLimit_15MiB_ExactVsExceeded() {
-        // MockMultipartFile que dice medir 15 MiB + 1
         MockMultipartFile exceededMeta = new MockMultipartFile("image", "huge.jpg", "image/jpeg", new byte[10]) {
             @Override
             public long getSize() {
@@ -220,7 +279,6 @@ class PhotoProcessorTest {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> processor.process(exceededMeta));
         assertEquals("La foto está vacía o pesa más de 15 MB.", ex.getMessage());
 
-        // Stream que supera 15 MiB aunque getSize mienta
         MockMultipartFile lyingFile = new MockMultipartFile("image", "lie.jpg", "image/jpeg", new byte[10]) {
             @Override
             public long getSize() {
@@ -245,24 +303,19 @@ class PhotoProcessorTest {
 
     @Test
     void testL1_AxisAndPixelLimits_LongProductCalculation() throws Exception {
-        // Cabecera PNG con eje 16385 (debe rechazarse antes de decodificar raster)
         byte[] pngValid = createTestImageBytes("PNG", 100, 100, Color.BLACK);
-        // Modificar ancho en IHDR (bytes 16..19)
         byte[] pngOverAxis = pngValid.clone();
         pngOverAxis[16] = 0;
         pngOverAxis[17] = 0;
-        pngOverAxis[18] = 0x40; // 16384 + 1 = 16385 -> 0x4001
+        pngOverAxis[18] = 0x40; // 16385 -> 0x4001
         pngOverAxis[19] = 0x01;
 
         IllegalArgumentException exAxis = assertThrows(IllegalArgumentException.class,
                 () -> processor.process(new MockMultipartFile("image", "axis.png", "image/png", pngOverAxis)));
         assertEquals("La foto es demasiado grande. Usá hasta 24 megapíxeles y 16384 píxeles por lado.", exAxis.getMessage());
 
-        // Modificar para producto que exceda 24MP en long (e.g. 10000 x 3000 = 30MP <= eje 16384 pero > 24MP)
         byte[] pngOverPixels = pngValid.clone();
-        // 10000 = 0x2710
         pngOverPixels[16] = 0; pngOverPixels[17] = 0; pngOverPixels[18] = 0x27; pngOverPixels[19] = 0x10;
-        // 3000 = 0x0BB8
         pngOverPixels[20] = 0; pngOverPixels[21] = 0; pngOverPixels[22] = 0x0B; pngOverPixels[23] = (byte) 0xB8;
         IllegalArgumentException exPixels = assertThrows(IllegalArgumentException.class,
                 () -> processor.process(new MockMultipartFile("image", "pixels.png", "image/png", pngOverPixels)));
@@ -271,7 +324,6 @@ class PhotoProcessorTest {
 
     @Test
     void testL1_Real24MP_DecodedAndMemoryMeasured() throws Exception {
-        // 6000 x 4000 = exactos 24.000.000 píxeles
         int w = 6000;
         int h = 4000;
         BufferedImage bigImage = new BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY);
@@ -295,7 +347,7 @@ class PhotoProcessorTest {
 
         long memAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
         long memDiffMb = (memAfter - memBefore) / (1024 * 1024);
-        System.out.printf("[L1 MEMORY] Caso 24MP procesado exitosamente. Delta memoria estimada: %d MB. Salida: %s\n",
+        System.out.printf("[L1 MEMORY] Caso 24MP completado. Estimación interna de heap delta: %d MB (no representa pico RSS de SO). Salida: %s\n",
                 memDiffMb, url);
 
         Path saved = uploadsRoot.resolve(url.substring("/media/".length()));
@@ -306,13 +358,11 @@ class PhotoProcessorTest {
     }
 
     // ==========================================
-    // O1: Orientaciones EXIF 1..8
+    // O1: Orientaciones EXIF 1..8 en JPEG, PNG y WebP con verificación de píxeles
     // ==========================================
 
     @Test
-    void testO1_ExifOrientations1To8_DeterministicTransforms() throws Exception {
-        // Creamos una imagen base 80x60 dividida en 4 cuadrantes con colores distintos:
-        // Top-Left: ROJO, Top-Right: VERDE, Bottom-Left: AZUL, Bottom-Right: AMARILLO
+    void testO1_ExifOrientations1To8_AllFormats_PixelsChecked() throws Exception {
         int w = 80;
         int h = 60;
         BufferedImage base = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
@@ -325,56 +375,210 @@ class PhotoProcessorTest {
             }
         }
 
-        // Probar las 8 orientaciones tanto con Little-Endian (II) como Big-Endian (MM)
+        ByteArrayOutputStream baosPng = new ByteArrayOutputStream();
+        ImageIO.write(base, "PNG", baosPng);
+        byte[] rawPng = baosPng.toByteArray();
+
+        ByteArrayOutputStream baosJpeg = new ByteArrayOutputStream();
+        ImageIO.write(base, "JPEG", baosJpeg);
+        byte[] rawJpeg = baosJpeg.toByteArray();
+
+        ByteArrayOutputStream baosWebp = new ByteArrayOutputStream();
+        ImageIO.write(base, "webp", baosWebp);
+        byte[] rawWebp = baosWebp.toByteArray();
+
+        int RED = 0xFF0000, GREEN = 0x00FF00, BLUE = 0x0000FF, YELLOW = 0xFFFF00;
+        int[][] expectedColors = {
+                {}, // 0 unused
+                {RED, GREEN, BLUE, YELLOW},    // 1: Normal
+                {GREEN, RED, YELLOW, BLUE},    // 2: Flip H
+                {YELLOW, BLUE, GREEN, RED},    // 3: 180 deg
+                {BLUE, YELLOW, RED, GREEN},    // 4: Flip V
+                {RED, BLUE, GREEN, YELLOW},    // 5: Transpose (espejo 5)
+                {BLUE, RED, YELLOW, GREEN},    // 6: 90 CW
+                {YELLOW, GREEN, BLUE, RED},    // 7: Transverse (espejo 7)
+                {GREEN, YELLOW, RED, BLUE}     // 8: 270 CW
+        };
+
         for (int ori = 1; ori <= 8; ori++) {
             for (boolean le : new boolean[]{true, false}) {
                 byte[] tiff = makeTiff(ori, le);
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(base, "PNG", baos);
-                byte[] pngWithExif = injectPngChunk(baos.toByteArray(), "eXIf", tiff);
 
-                PhotoProcessor.ContainerAnalysis analysis = processor.analyzeContainer(
-                        writeTemp(pngWithExif), pngWithExif.length);
-                assertEquals(ori, analysis.orientation(), "Orientación detectada no coincide para ori=" + ori + " le=" + le);
+                // 1. PNG con eXIf
+                byte[] pngWithExif = injectPngChunk(rawPng, "eXIf", tiff);
+                BufferedImage revPng = processor.transformAndReveal(base, ori);
+                assertQuadrantColors(revPng, expectedColors[ori], "PNG ori=" + ori + " le=" + le);
 
-                BufferedImage revealed = processor.transformAndReveal(base, ori);
-                assertEquals(800, revealed.getWidth());
-                assertEquals(600, revealed.getHeight());
+                // 2. JPEG con APP1 Exif
+                byte[] jpegWithExif = injectJpegApp1(rawJpeg, tiff);
+                PhotoProcessor.ContainerAnalysis jpegAnalysis = processor.analyzeContainer(
+                        writeTemp(jpegWithExif), jpegWithExif.length);
+                assertEquals(ori, jpegAnalysis.orientation(), "JPEG orientación falló para ori=" + ori);
+                BufferedImage revJpeg = processor.transformAndReveal(base, ori);
+                assertQuadrantColors(revJpeg, expectedColors[ori], "JPEG ori=" + ori + " le=" + le);
+
+                // 3. WebP con EXIF
+                byte[] webpWithExif = injectWebpExif(rawWebp, tiff, w, h);
+                PhotoProcessor.ContainerAnalysis webpAnalysis = processor.analyzeContainer(
+                        writeTemp(webpWithExif), webpWithExif.length);
+                assertEquals(ori, webpAnalysis.orientation(), "WebP orientación falló para ori=" + ori);
+                BufferedImage revWebp = processor.transformAndReveal(base, ori);
+                assertQuadrantColors(revWebp, expectedColors[ori], "WebP ori=" + ori + " le=" + le);
             }
         }
     }
 
+    private void assertQuadrantColors(BufferedImage img, int[] expected, String context) {
+        assertPixelColor(img.getRGB(200, 150), expected[0], context + " TL");
+        assertPixelColor(img.getRGB(600, 150), expected[1], context + " TR");
+        assertPixelColor(img.getRGB(200, 450), expected[2], context + " BL");
+        assertPixelColor(img.getRGB(600, 450), expected[3], context + " BR");
+    }
+
+    private void assertPixelColor(int actualRgb, int expectedRgb, String msg) {
+        int actR = (actualRgb >> 16) & 0xFF;
+        int actG = (actualRgb >> 8) & 0xFF;
+        int actB = actualRgb & 0xFF;
+
+        int expR = (expectedRgb >> 16) & 0xFF;
+        int expG = (expectedRgb >> 8) & 0xFF;
+        int expB = expectedRgb & 0xFF;
+
+        assertTrue(Math.abs(actR - expR) <= 5 && Math.abs(actG - expG) <= 5 && Math.abs(actB - expB) <= 5,
+                String.format("%s: esperado RGB(%d,%d,%d) pero fue RGB(%d,%d,%d)", msg, expR, expG, expB, actR, actG, actB));
+    }
+
+    @Test
+    void testO1_AbsenceOfExif_DefaultsToOne() throws Exception {
+        byte[] pngNoExif = createTestImageBytes("PNG", 200, 150, Color.YELLOW);
+        PhotoProcessor.ContainerAnalysis a = processor.analyzeContainer(writeTemp(pngNoExif), pngNoExif.length);
+        assertEquals(1, a.orientation());
+    }
+
+    @Test
+    void testO1_IFD0_GovernsOverThumbnail() throws Exception {
+        ByteBuffer bb = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN);
+        bb.put((byte) 'I').put((byte) 'I');
+        bb.putShort((short) 42);
+        bb.putInt(8);
+
+        // IFD0: 1 tag orientación = 1, next IFD en offset 26
+        bb.putShort((short) 1);
+        bb.putShort((short) 0x0112);
+        bb.putShort((short) 3);
+        bb.putInt(1);
+        bb.putShort((short) 1);
+        bb.putShort((short) 0);
+        bb.putInt(26);
+
+        // IFD1: 1 tag orientación = 6 (miniatura)
+        bb.putShort((short) 1);
+        bb.putShort((short) 0x0112);
+        bb.putShort((short) 3);
+        bb.putInt(1);
+        bb.putShort((short) 6);
+        bb.putShort((short) 0);
+        bb.putInt(0);
+
+        byte[] tiff = bb.array();
+        byte[] png = injectPngChunk(createTestImageBytes("PNG", 100, 100, Color.WHITE), "eXIf", tiff);
+        PhotoProcessor.ContainerAnalysis a = processor.analyzeContainer(writeTemp(png), png.length);
+        assertEquals(1, a.orientation());
+    }
+
     // ==========================================
-    // G1: Geometría, proporciones, k=0
+    // G1: Geometría, proporciones, recorte centrado y conservación de círculos
     // ==========================================
 
     @Test
-    void testG1_CropAspectRatios_AndSmallRejection() throws Exception {
-        // 1. Horizontal (1200 x 800) -> 800x600
-        BufferedImage hImg = new BufferedImage(1200, 800, BufferedImage.TYPE_INT_RGB);
+    void testG1_Crop_IdentifiableBorders_AndCenterPreserved() throws Exception {
+        // 1. Horizontal 1200 x 600 (ratio 2:1)
+        BufferedImage hImg = new BufferedImage(1200, 600, BufferedImage.TYPE_INT_RGB);
+        Graphics2D gh = hImg.createGraphics();
+        gh.setColor(Color.CYAN);
+        gh.fillRect(0, 0, 200, 600);
+        gh.setColor(Color.MAGENTA);
+        gh.fillRect(1000, 0, 200, 600);
+        gh.setColor(Color.WHITE);
+        gh.fillRect(200, 0, 800, 600);
+        gh.setColor(Color.RED);
+        gh.fillRect(580, 280, 40, 40);
+        gh.dispose();
+
         BufferedImage resH = processor.transformAndReveal(hImg, 1);
         assertEquals(800, resH.getWidth());
         assertEquals(600, resH.getHeight());
 
-        // 2. Vertical (800 x 1200) -> 800x600
-        BufferedImage vImg = new BufferedImage(800, 1200, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 600; y += 30) {
+            for (int x = 0; x < 800; x += 30) {
+                int rgb = resH.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                assertFalse(r < 30 && g > 200 && b > 200, "Margen CIAN presente en (" + x + "," + y + ")");
+                assertFalse(r > 200 && g < 30 && b > 200, "Margen MAGENTA presente en (" + x + "," + y + ")");
+            }
+        }
+        int centerRgb = resH.getRGB(400, 300);
+        assertEquals(255, (centerRgb >> 16) & 0xFF, "R centro");
+        assertTrue(((centerRgb >> 8) & 0xFF) < 30, "G centro");
+
+        // 2. Vertical 600 x 1200 (ratio 1:2)
+        BufferedImage vImg = new BufferedImage(600, 1200, BufferedImage.TYPE_INT_RGB);
+        Graphics2D gv = vImg.createGraphics();
+        gv.setColor(Color.YELLOW);
+        gv.fillRect(0, 0, 600, 375);
+        gv.setColor(Color.BLUE);
+        gv.fillRect(0, 825, 600, 375);
+        gv.setColor(Color.WHITE);
+        gv.fillRect(0, 375, 600, 450);
+        gv.setColor(Color.GREEN);
+        gv.fillRect(280, 580, 40, 40);
+        gv.dispose();
+
         BufferedImage resV = processor.transformAndReveal(vImg, 1);
         assertEquals(800, resV.getWidth());
         assertEquals(600, resV.getHeight());
+        int vCenter = resV.getRGB(400, 300);
+        assertEquals(255, (vCenter >> 8) & 0xFF, "G centro vertical");
 
-        // 3. Cuadrada (1000 x 1000) -> 800x600
-        BufferedImage sqImg = new BufferedImage(1000, 1000, BufferedImage.TYPE_INT_RGB);
-        BufferedImage resSq = processor.transformAndReveal(sqImg, 1);
-        assertEquals(800, resSq.getWidth());
-        assertEquals(600, resSq.getHeight());
+        // 3. Panorámica 2400 x 600 (ratio 4:1)
+        BufferedImage panoImg = new BufferedImage(2400, 600, BufferedImage.TYPE_INT_RGB);
+        BufferedImage resPano = processor.transformAndReveal(panoImg, 1);
+        assertEquals(800, resPano.getWidth());
+        assertEquals(600, resPano.getHeight());
 
-        // 4. Dimensiones impares (1001 x 701) -> 800x600
+        // 4. Dimensiones impares con redondeo floor (1001 x 701)
         BufferedImage oddImg = new BufferedImage(1001, 701, BufferedImage.TYPE_INT_RGB);
         BufferedImage resOdd = processor.transformAndReveal(oddImg, 1);
         assertEquals(800, resOdd.getWidth());
         assertEquals(600, resOdd.getHeight());
 
-        // 5. Pequeña con k=0 (e.g. 3 x 2) -> rechazada con 400
+        // 5. Círculo conserva proporción:
+        BufferedImage circleImg = new BufferedImage(800, 600, BufferedImage.TYPE_INT_RGB);
+        Graphics2D gc = circleImg.createGraphics();
+        gc.setColor(Color.BLACK);
+        gc.fillRect(0, 0, 800, 600);
+        gc.setColor(Color.WHITE);
+        gc.fillOval(400 - 100, 300 - 100, 200, 200);
+        gc.dispose();
+
+        BufferedImage resCircle = processor.transformAndReveal(circleImg, 1);
+        int minX = 800, maxX = 0, minY = 600, maxY = 0;
+        for (int y = 0; y < 600; y++) {
+            for (int x = 0; x < 800; x++) {
+                if (((resCircle.getRGB(x, y) >> 16) & 0xFF) > 200) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        int diamX = maxX - minX + 1;
+        int diamY = maxY - minY + 1;
+        assertTrue(Math.abs(diamX - diamY) <= 1,
+                String.format("El círculo se deformó: diamX=%d, diamY=%d", diamX, diamY));
+
+        // 6. Pequeña con k=0 (e.g. 3 x 2)
         BufferedImage tinyImg = new BufferedImage(3, 2, BufferedImage.TYPE_INT_RGB);
         IllegalArgumentException exTiny = assertThrows(IllegalArgumentException.class,
                 () -> processor.transformAndReveal(tinyImg, 1));
@@ -387,35 +591,14 @@ class PhotoProcessorTest {
 
     @Test
     void testC1_SubtleColorCorrection_AndAlphaOnWhite() throws Exception {
-        // Imagen 4x3 con 4 píxeles de prueba:
-        // (0,0): Negro puro (0, 0, 0)
-        // (1,0): Blanco puro (255, 255, 255)
-        // (2,0): Gris medio (128, 128, 128)
-        // (0,1): Transparente puro (A=0, RGB=0)
-        // (1,1): Rojo semitransparente (A=128, R=255, G=0, B=0)
-        BufferedImage img = new BufferedImage(8, 6, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setColor(new Color(0, 0, 0, 255));
-        g.fillRect(0, 0, 8, 6);
-        img.setRGB(0, 0, new Color(0, 0, 0, 255).getRGB());
-        img.setRGB(1, 0, new Color(255, 255, 255, 255).getRGB());
-        img.setRGB(2, 0, new Color(128, 128, 128, 255).getRGB());
-        img.setRGB(3, 0, new Color(0, 0, 0, 0).getRGB());
-        g.dispose();
-
-        // Aplicamos revelado directamente sobre una imagen de 400x300 con regiones uniformes
         BufferedImage testImg = new BufferedImage(400, 300, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = testImg.createGraphics();
-        // Cuadrante 1: Negro
         g2.setColor(Color.BLACK);
         g2.fillRect(0, 0, 200, 150);
-        // Cuadrante 2: Blanco
         g2.setColor(Color.WHITE);
         g2.fillRect(200, 0, 200, 150);
-        // Cuadrante 3: Gris medio (128, 128, 128)
         g2.setColor(new Color(128, 128, 128));
         g2.fillRect(0, 150, 200, 150);
-        // Cuadrante 4: Transparente (alfa = 0)
         g2.setColor(new Color(0, 0, 0, 0));
         g2.fillRect(200, 150, 200, 150);
         g2.dispose();
@@ -423,34 +606,31 @@ class PhotoProcessorTest {
         BufferedImage revealed1 = processor.transformAndReveal(testImg, 1);
         BufferedImage revealed2 = processor.transformAndReveal(testImg, 1);
 
-        // 1. Negro sigue negro: (0, 0, 0) (Cuadrante 1: X=0..400, Y=0..300)
+        // 1. Negro sigue negro: (0, 0, 0)
         int rgbBlack = revealed1.getRGB(100, 100);
         assertEquals(0, (rgbBlack >> 16) & 0xFF, "R negro");
         assertEquals(0, (rgbBlack >> 8) & 0xFF, "G negro");
         assertEquals(0, rgbBlack & 0xFF, "B negro");
 
-        // 2. Blanco satura a blanco: (255, 255, 255) (Cuadrante 2: X=400..800, Y=0..300)
+        // 2. Blanco satura a blanco: (255, 255, 255)
         int rgbWhite = revealed1.getRGB(600, 100);
         assertEquals(255, (rgbWhite >> 16) & 0xFF, "R blanco");
         assertEquals(255, (rgbWhite >> 8) & 0xFF, "G blanco");
         assertEquals(255, rgbWhite & 0xFF, "B blanco");
 
-        // 3. Gris medio: (Cuadrante 3: X=0..400, Y=300..600)
-        // R' = clamp(round(128 * 1.03 * 1.01)) = 133
-        // G' = clamp(round(128 * 1.03)) = 132
-        // B' = clamp(round(128 * 1.03 * 0.99)) = 131
+        // 3. Gris medio: (133, 132, 131)
         int rgbGray = revealed1.getRGB(100, 450);
         assertEquals(133, (rgbGray >> 16) & 0xFF, "R gris medio");
         assertEquals(132, (rgbGray >> 8) & 0xFF, "G gris medio");
         assertEquals(131, rgbGray & 0xFF, "B gris medio");
 
-        // 4. Alfa sobre blanco satura a blanco: (255, 255, 255) (Cuadrante 4: X=400..800, Y=300..600)
+        // 4. Alfa sobre blanco satura a blanco: (255, 255, 255)
         int rgbAlpha = revealed1.getRGB(600, 450);
         assertEquals(255, (rgbAlpha >> 16) & 0xFF, "R alfa blanco");
         assertEquals(255, (rgbAlpha >> 8) & 0xFF, "G alfa blanco");
         assertEquals(255, rgbAlpha & 0xFF, "B alfa blanco");
 
-        // 5. Determinismo estricto píxel a píxel entre dos ejecuciones
+        // 5. Determinismo estricto píxel a píxel
         for (int y = 0; y < 600; y += 50) {
             for (int x = 0; x < 800; x += 50) {
                 assertEquals(revealed1.getRGB(x, y), revealed2.getRGB(x, y),
@@ -481,8 +661,8 @@ class PhotoProcessorTest {
         bb.putShort((short) 42);
         bb.putInt(8);
         bb.putShort((short) 1);
-        bb.putShort((short) 0x0112); // Orientation tag
-        bb.putShort((short) 3); // SHORT
+        bb.putShort((short) 0x0112);
+        bb.putShort((short) 3);
         bb.putInt(1);
         bb.putShort((short) ori);
         bb.putShort((short) 0);
@@ -492,27 +672,62 @@ class PhotoProcessorTest {
 
     private byte[] injectPngChunk(byte[] pngBytes, String chunkType, byte[] payload) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write(pngBytes, 0, 8); // PNG signature
+        out.write(pngBytes, 0, 8);
 
         int offset = 8;
         while (offset + 8 <= pngBytes.length) {
             int chunkLen = ((pngBytes[offset] & 0xFF) << 24) | ((pngBytes[offset + 1] & 0xFF) << 16) |
                            ((pngBytes[offset + 2] & 0xFF) << 8) | (pngBytes[offset + 3] & 0xFF);
-            String type = new String(pngBytes, offset + 4, 4, java.nio.charset.StandardCharsets.US_ASCII);
+            String type = new String(pngBytes, offset + 4, 4, StandardCharsets.US_ASCII);
 
             out.write(pngBytes, offset, 8 + chunkLen + 4);
             offset += 8 + chunkLen + 4;
 
             if ("IHDR".equals(type)) {
-                // Inyectar inmediatamente después de IHDR
                 ByteBuffer lenBuf = ByteBuffer.allocate(4).putInt(payload.length);
                 out.write(lenBuf.array());
-                out.write(chunkType.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                out.write(chunkType.getBytes(StandardCharsets.US_ASCII));
                 out.write(payload);
-                // CRC dummy
                 out.write(new byte[]{0, 0, 0, 0});
             }
         }
+        return out.toByteArray();
+    }
+
+    private byte[] injectJpegApp1(byte[] rawJpeg, byte[] tiff) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(0xFF); out.write(0xD8);
+        out.write(0xFF); out.write(0xE1);
+        int app1Len = 2 + 6 + tiff.length;
+        out.write((app1Len >> 8) & 0xFF); out.write(app1Len & 0xFF);
+        out.write("Exif\0\0".getBytes(StandardCharsets.US_ASCII));
+        out.write(tiff);
+        out.write(rawJpeg, 2, rawJpeg.length - 2);
+        return out.toByteArray();
+    }
+
+    private byte[] injectWebpExif(byte[] rawWebp, byte[] tiff, int w, int h) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(new byte[]{'R', 'I', 'F', 'F'});
+        int totalLen = 4 + 18 + (8 + tiff.length + (tiff.length % 2)) + (rawWebp.length - 12);
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(totalLen).array());
+        out.write(new byte[]{'W', 'E', 'B', 'P'});
+
+        out.write(new byte[]{'V', 'P', '8', 'X'});
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(10).array());
+        out.write((byte) 0x08);
+        out.write(new byte[]{0, 0, 0});
+        int wMinus1 = w - 1;
+        int hMinus1 = h - 1;
+        out.write(new byte[]{(byte)(wMinus1 & 0xFF), (byte)((wMinus1 >> 8) & 0xFF), (byte)((wMinus1 >> 16) & 0xFF)});
+        out.write(new byte[]{(byte)(hMinus1 & 0xFF), (byte)((hMinus1 >> 8) & 0xFF), (byte)((hMinus1 >> 16) & 0xFF)});
+
+        out.write(new byte[]{'E', 'X', 'I', 'F'});
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(tiff.length).array());
+        out.write(tiff);
+        if (tiff.length % 2 != 0) out.write(0);
+
+        out.write(rawWebp, 12, rawWebp.length - 12);
         return out.toByteArray();
     }
 

@@ -340,6 +340,8 @@ class PhotoProcessor {
             ImageReader reader = readers.next();
             try {
                 reader.setInput(iis);
+                boolean[] decodeWarning = new boolean[1];
+                reader.addIIOReadWarningListener((source, warning) -> decodeWarning[0] = true);
                 String fmt = reader.getFormatName();
                 if (!isFormatAllowed(fmt)) {
                     throw new IllegalArgumentException("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.");
@@ -372,7 +374,7 @@ class PhotoProcessor {
                 } catch (Exception e) {
                     throw new IllegalArgumentException("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.");
                 }
-                if (rawImage == null) {
+                if (rawImage == null || decodeWarning[0]) {
                     throw new IllegalArgumentException("Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.");
                 }
 
