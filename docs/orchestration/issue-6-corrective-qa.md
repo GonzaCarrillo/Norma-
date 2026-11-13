@@ -1,82 +1,137 @@
-# Auditoría QA correctiva — Issue #6 (v2)
+# Auditoría QA correctiva — Issue #6 (v2.2)
 
-- **Dictamen:** QA_REJECTED
-- **Commit auditado:** `9e11580f03bc82800938541008e566a3f32ba384`
-- **Base:** `d13c51b835dd1a32eadf7043957e02b918f5c3e2`
-- **Diseño:** Codex v2.0, `docs/orchestration/issue-6-corrective-design.md`
-- **Gate:** autorización de Orca recibida en `msg_f0fc1a38c742`, confirmando v2 para este despacho.
-- **Worktree/rama:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`, `GonzaCarrillo/reconcile-6-storefront`.
+**Dictamen:** QA_APPROVED  
+**Commit auditado (HEAD producción v2.2):** `5008d07487f487f8428f5fad46a3a2e31eb7f3df`  
+**Fix de producción (Api.java):** `ce9899eac3202d785293969bd38c1d9e62ba8e8e` (serialización atómica por clave del ciclo de vida SSE)  
+**Commit de gobernanza sobre el fix:** `53a243d05d0226c6d29357205600ee7ca6c5a9cd` (evidencia de exportación limpia y control positivo baseline v2.2, solo documentos)  
+**Base del diseño:** `265ab8e60e0a51c4a5d898a129d20c5d794cb5c8`  
+**Diseño de referencia:** Codex v2.2, `docs/orchestration/issue-6-sse-design-v2.2.md`  
+**Reporte de construcción (builder Antigravity):** `docs/orchestration/issue-6-corrective-build.md` (commit verificado `ce9899e`, 199 tests, BUILD SUCCESS)  
+**Worktree / rama:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`, `GonzaCarrillo/reconcile-6-storefront`  
+**Terminal auditora:** `term_0f04be1f-9a14-48e5-8160-aeef1ffa73b4`  
+**Fecha:** 2026-11-13
 
-La auditoría se ejecutó sobre `git archive HEAD` exportado en `target/qa.sojvNu/export`; el worktree estaba limpio antes de QA. El diff desde la base contiene únicamente reportes y evidencia documental. No hay cambios en estáticos, backend, contratos, pruebas, configuración ni dependencias.
+---
 
-## Entorno y evidencia de build
+## 1. Veredicto global
 
-- Linux 6.14.0-37-generic; Microsoft OpenJDK `25.0.4.1+1-LTS`; Apache Maven `3.8.7`.
-- Primera ejecución limpia `mvn -B clean verify`: **exit 1**, 192 tests, 0 failures, 1 error, 0 skipped. `StorefrontSseTest.testCompleteSseTransportLifecycle` recibió HTTP 500 en `StorefrontSseTest.java:433`, al confirmar una mutación después de cerrar el stream A. El log de servidor registra `IllegalStateException`/`AsyncRequestNotUsableException` al completar un `SseEmitter` cuyo contexto async ya había fallado.
-- Repetición dirigida `mvn -B -Dtest=StorefrontSseTest test`: **exit 0**, 1 test, sin errores.
-- Segunda ejecución limpia `mvn -B clean verify`: **BUILD SUCCESS**, exit 0; 16 suites, 192 tests, 0 failures, 0 errors, 0 skipped. El error inicial no se reprodujo; se conserva como resultado intermitente observado, no como fallo confirmado de forma repetible.
-- SHA-256 del JAR de la ejecución exitosa: `84714824d8a9062ad8c817406224c76052196f6971dfc6049d9d94c5afe723d7`.
-- Hashes de logs: primera verificación `7a453c922971e47330085fe407c44c1eff67db38425199fddcdc77f67e45b1a7`; prueba dirigida `9a0e57886fdd2b3843effbfeb4cfeb460c61ae1516f40a974c1de514f3a4ab37`; repetición limpia `ba2e44bbc55f5df075deeb428c3953bdb3ab63cc44ab3ce5b64fc14740fd7b64`.
-- Logs comprimidos sin modificar (`.log.gz`) y XML Surefire están en `docs/orchestration/issue-6-corrective-evidence/qa/`; al descomprimir, los logs coinciden con los hashes indicados.
+**QA_APPROVED** sobre `5008d07487f487f8428f5fad46a3a2e31eb7f3df`.
 
-## Matriz de aceptación
+La ejecución limpia independiente sobre `git archive HEAD` completó `mvn -B clean verify` con `EXIT_CODE=0` (`BUILD SUCCESS`), 199 tests ejecutados, 0 fallos, 0 errores, 0 omitidos. El código de producción en `Api.java` cumple el contrato v2.2 (registro con `compute` y límite de 5 dentro del lock atómico de clave, retiro idempotente con `computeIfPresent`, I/O y terminación fuera de los bloques de reasignación, helper `removeEmitter` compartido e idempotente). La regresión concurrente es determinista (`CountDownLatch`, sin `Thread.sleep`), el control positivo del baseline es real (intercalación sobre código v2.1, sin lambda sintética), y la prueba HTTP SSE de desconexión/confirmación/reconexión se conserva intacta con sus asserts sin debilitar.
 
-| Criterio | Resultado | Evidencia y límite |
-|---|---|---|
-| V1 — Zoom nativo a 100% y 200%, con indicador visible, emulación desactivada | **Aceptación manual del usuario; sin evidencia técnica aportada** | El usuario confirmó manualmente que probó y el zoom funciona. La observación de QA sobre la falta de acceso al indicador queda como antecedente técnico, no como bloqueo vigente de este gate. No se informaron navegador, medidas, método ni capturas; Copilot no los atribuye a su auditoría. Ver adenda. |
-| V1 — Reflow, títulos largos y capturas de la misma ventana a 200% | **BLOCKED / evidencia parcial** | `docs/orchestration/issue-6-corrective-evidence/builder/builder_evidence.json` informa 8 tarjetas uniformes, ratio fotográfico 4:3 y sin scroll para 1440, 768, 640, 375 y 320 CSS px. No acredita zoom nativo: todos los campos `screenshot` son `null`, no contiene la verificación con títulos largos al 200%, y el proceso del servidor figura con `exit_code=-9`. |
-| Navegación por teclado, diálogo de foto, Escape y retorno de foco | **PASS, solo en navegador embebido al zoom por defecto** | Tab enfocó “Ir a las piezas”; Enter abrió la foto y enfocó `#close-zoom`; Escape cerró y devolvió el foco al botón de la pieza. Esto no sustituye V1-zoom200. |
-| Simulador: apertura/cierre por teclado y retorno de foco | **PASS, solo en navegador embebido al zoom por defecto** | Enter abrió `#sim` y enfocó `#close`; Escape cerró y devolvió foco a `#open`. |
-| Build y regresiones automatizadas | **PASS en repetición; resultado intermitente observado** | La segunda verificación limpia completó 192 tests. La primera verificación limpia falló en el POST posterior a la desconexión SSE; la repetición dirigida y la segunda suite completa pasaron. No se modificó ni excluyó ninguna prueba. |
-| V2–V8 y voz/fallback | **Sin cambio de producción; no revalidados íntegramente en navegador** | El diff no contiene estáticos. `StorefrontContractTest` y `StorefrontSseTest` pasaron en la suite final; la auditoría correctiva no reproduce el flujo de voz externa ni afirma cobertura visual completa para estos criterios. |
+No se modificó código de producción, pruebas, POM, contratos, estáticos ni informes del builder/diseño. Este informe y su evidencia propia en `issue-6-corrective-evidence/qa/v2.2/` son los únicos archivos nuevos.
 
-## Bloqueos y hallazgos
+---
 
-1. **Limitación técnica observada para V1-zoom200.** Durante la auditoría Copilot no obtuvo una captura del indicador nativo: el proveedor GUI no expuso menú ni atajo de zoom controlable. Esta observación queda supersedida como bloqueo de aceptación por la confirmación manual del usuario registrada en la adenda; no se convierte en evidencia técnica de navegador o medición.
-2. **Observación intermitente de SSE.** Reproducción observada una vez: cerrar el lector del stream A y ejecutar la confirmación offline en la secuencia de `StorefrontSseTest`; resultado observado HTTP 500, esperado respuesta satisfactoria y recuperación del estado mediante GET al reconectar. El log apunta a la finalización de un emitter async ya fallido. No se reprodujo en la prueba aislada ni en la segunda suite completa; se informa sin atribuir causa definitiva ni cambiar código fuera de alcance.
+## 2. Entorno y recursos
 
-**Conclusión:** `QA_REJECTED` mientras siga abierto el hallazgo de SSE descrito arriba. La aceptación manual del zoom no resuelve ese hallazgo ni constituye `QA_APPROVED`. No se realizaron cambios de producción.
+| Ítem | Valor |
+|---|---|
+| JDK | Microsoft OpenJDK 25.0.4.1+1-LTS (`/home/gonzalocar/.jdks/ms-25.0.4.1`), `java.specification.version=25` |
+| Maven | Apache Maven 3.8.7 |
+| SO | Linux 6.14.0-37-generic (amd64) |
+| Exportación | `git archive HEAD` → `target/qa-opencode/export/` (solo archivos rastreados, sin `.git`, sin archivos sin seguimiento) |
+| DB/uploads/tmp | Aislados bajo `target/export-runtime/` propio de la exportación (`norma.uploads`, `java.io.tmpdir`), nunca recursos de #4 ni puertos compartidos |
+| groq.api.key | Vacío (`""`); MediaService mockeado en tests de contrato/SSE; sin red Groq/TTS |
+| Puerto HTTP/SSE | `RANDOM_PORT` (`SpringBootTest.WebEnvironment.RANDOM_PORT`) |
 
-## Adenda — Aceptación manual de V1-zoom200
+---
 
-**Fuente:** confirmación manual del usuario, comunicada por Orca en el despacho `task_ad01f46c353f` / `ctx_5e59a6ba24b0`: «la #6 el zoom ya lo probe yo y funciona, dalo por hecho, y continua con tus tareas».
+## 3. Compilación y regresión (re-ejecutada de forma independiente por QA)
 
-Conforme a esa instrucción, la confirmación del usuario satisface el gate de V1-zoom200 para esta revisión y reemplaza el requisito de que Copilot repita la ejecución automatizada. El usuario no reportó navegador, versión, dimensión de ventana, valores observados, método ni capturas. No se inventa ni se atribuye esa evidencia a Copilot; la limitación técnica observada durante esta auditoría queda registrada solo como antecedente.
+Secuencia ejecutada desde la exportación limpia:
 
-El hallazgo intermitente de SSE permanece **ABIERTO**. Antigravity tiene asignado su diagnóstico en `ctx_da62f6aa396a`; no se emite `QA_APPROVED` hasta recibir y revisar la resolución sobre la entrega correspondiente. Esta adenda es documental: no se repitieron pruebas ni se modificó código de producción.
+```bash
+export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1
+export PATH="$JAVA_HOME/bin:$PATH"
+mvn -B clean
+mkdir -p target/export-runtime/tmp target/export-runtime/uploads
+mvn -B verify \
+  -DargLine="-Djava.io.tmpdir=$(pwd -P)/target/export-runtime/tmp" \
+  -Dnorma.uploads="$(pwd -P)/target/export-runtime/uploads" \
+  -Dgroq.api.key=
+```
 
-## Reauditoría SSE v2.1 — 2026-11-13
+**Resultado real:** `EXIT_CODE=0`, `BUILD SUCCESS`, duración `02:59 min`.  
+**Tests Surefire:** 199 ejecutados, 0 fallos, 0 errores, 0 omitidos (17 suites).
 
-- **Dictamen de esta reauditoría:** QA_REJECTED
-- **SHA auditado:** `e79e3b1523263927396f090e1c417362dba30728`
-- **Base de implementación v2.1:** `e89c04bd225460683f004b6a59510d9003b1e191`
-- **Diseño:** `docs/orchestration/issue-6-sse-design-v2.1.md`
-- **Entorno:** Linux 6.14.0-37-generic; Microsoft OpenJDK `25.0.4.1+1-LTS`; Apache Maven `3.8.7`.
-- **Worktree:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`, rama `GonzaCarrillo/reconcile-6-storefront`; limpio al inicio, HEAD `e79e3b1523263927396f090e1c417362dba30728`.
+**Hashes SHA-256:**
+- Registro de verificación (`clean-verify.log`): `b80d3ea9f80534ba72918d4950e2b23e75af80bef7d033534301fff07b3cf0be`
+- Artefacto empaquetado (`taller-1.0.0.jar`): `788fff32f1d9528aef61b3412c478476e169ae2ffc65bd2bdb0b4b0b15e4ff82`
 
-El usuario aceptó manualmente el zoom nativo según la adenda anterior; esa decisión se conserva y no se repitió la prueba. El resto de esta reauditoría inspeccionó el diff desde `e89c04b`, verificó la evidencia de builder y ejecutó `mvn -B clean verify` sobre `git archive HEAD` en `target/qa-sse.rlpc3A/export`, con base de pruebas y puertos del runner, sin modificar pruebas ni producción.
+**Desglose de suites Surefire (exportación limpia):**
 
-### Build y evidencia
+| Suite | Tests | Fallos | Errores | Omitidos |
+|---|---:|---:|---:|---:|
+| ApiAudioTest | 4 | 0 | 0 | 0 |
+| ApiPublishTest | 7 | 0 | 0 | 0 |
+| BotApiTest | 6 | 0 | 0 | 0 |
+| BotEngineTest | 30 | 0 | 0 | 0 |
+| BotPersistenceTest | 1 | 0 | 0 | 0 |
+| BotSessionCodecTest | 15 | 0 | 0 | 0 |
+| CatalogMigrationTest | 3 | 0 | 0 | 0 |
+| CatalogPersistenceTest | 3 | 0 | 0 | 0 |
+| CatalogRepositoryTest | 7 | 0 | 0 | 0 |
+| DemoMediaTest | 3 | 0 | 0 | 0 |
+| FlowTest | 4 | 0 | 0 | 0 |
+| IntentParserTest | 61 | 0 | 0 | 0 |
+| MediaHttpTest | 23 | 0 | 0 | 0 |
+| MediaServiceTest | 6 | 0 | 0 | 0 |
+| PhotoProcessorTest | 19 | 0 | 0 | 0 |
+| StorefrontContractTest | 6 | 0 | 0 | 0 |
+| StorefrontSseTest | 1 | 0 | 0 | 0 |
+| **Total general** | **199** | **0** | **0** | **0** |
 
-- **Resultado real:** `BUILD SUCCESS`, exit code `0`; 17 suites, 197 tests, 0 failures, 0 errors, 0 skipped.
-- **JAR SHA-256:** `68ece117c11487365adc91d7367adb19a7b3336f3f47e4e5624d461d141928a3`.
-- **Log sin comprimir SHA-256:** `2e1e0c48d14fa38f545f00b2e98ebb2a8e6cf8d92f698f874afa65a74a974418`.
-- **Basedir Surefire:** `target/qa-sse.rlpc3A/export`.
-- Log, XML Surefire de las 17 suites, resumen, SHA y commit están en `docs/orchestration/issue-6-corrective-evidence/qa/v2.1/`.
+Nota: el reporte del builder citó DemoMediaTest con 4 tests; el desglose Surefire de esta ejecución independiente registra 3 tests para esa suite. El total de 199 y el resultado `0 fallos / 0 errores` coinciden con la salida de Maven y con el reporte del builder. No se usó `skipTests` ni exclusiones para obtener verde.
 
-### Verificaciones específicas
+---
 
-| Criterio | Resultado | Evidencia |
-|---|---|---|
-| `send()` fallido no propaga, emisor retirado y mapa limpiado; `complete()` falla con excepción runtime | PASS | `ApiPublishTest.testBrokenEmitterDoesNotThrowAndIsRemoved` mockea `IOException` en `send()` e `IllegalStateException` en `complete()`, comprueba no propagación, retiro y eliminación de la clave. |
-| Emisor sano continúa tras fallo de otro | PASS | `testHealthyEmitterStillReceivesWhenAnotherFails` comprueba llamada a `send()` del sano y retiro del roto. |
-| Aislamiento entre sesiones | PASS | `testSessionIsolation` verifica que publicar en A no notifica B y que B sí recibe al publicar su sesión. |
-| Control positivo del baseline | PARCIAL | `testPositiveControlBaselineBehavior` reproduce en una lambda el `catch` anterior sin protección y comprueba que el mock de `complete()` propaga. No invoca directamente una implementación baseline; el diff confirma que el commit padre sí llamaba `e.complete()` sin protección. |
-| SSE HTTP real: desconectar, confirmar mutación, reconectar y recuperar por GET | PASS | `StorefrontSseTest` usa servidor aleatorio, cierra `readerA`, ejecuta dos POSTs cuya respuesta exitosa exige HTTP 200, reabre el stream y comprueba `catalog-update/conectado` y precio 35000 por GET. La prueba conserva los asserts de aislamiento y eventos previos. |
-| Fuera de la frontera SSE | PASS por inspección de diff | `message`, DTOs, `MediaConfig` y `ApiErrors` no se modificaron; no se alteraron contrato, POM, SQL o estáticos. |
+## 4. Verificación de criterios del diseño v2.2
 
-### Hallazgo bloqueante
+Se contrastó cada criterio contra el código de producción en `src/main/java/com/norma/taller/Api.java` y las pruebas de comportamiento.
 
-**P2 — Carrera en retiro de lista con suscripción simultánea.** En el callback `cleanup` y en `publish`, el código retira el emitter, comprueba `list.isEmpty()` y luego ejecuta `streams.remove(sessionId, list)`. Entre la comprobación y el `remove`, un `stream()` concurrente puede obtener esa misma lista mediante `computeIfAbsent` y añadir un nuevo emitter; el retiro condicional todavía elimina del mapa la lista ahora no vacía. La nueva suscripción queda huérfana y no recibirá publicaciones posteriores. Es una intercalación reproducible por el orden de operaciones observado en código, no una falla empírica de la suite; no hay prueba que la cubra. Bloquea QA hasta resolver/justificar la sincronización del ciclo de vida y añadir una regresión para registro concurrente con cleanup del último emitter.
+| # | Criterio (diseño v2.2) | Resultado | Evidencia / nota |
+|---|---|---|---|
+| C1 | Registro atómico por clave: `streams.compute(sessionId, ...)` con comprobación `list.size() >= 5` dentro del lock atómico de la clave | **PASS** | `Api.java:36-47`; crea `CopyOnWriteArrayList` si falta, rechaza por `IllegalArgumentException` sin mutar el mapa al superar el límite, añade el emisor y retorna la lista. |
+| C2 | Retiro idempotente atómico: `streams.computeIfPresent(sessionId, ...)` retorna `null` si y solo si la lista queda vacía | **PASS** | `Api.java:49-54`; solo opera si la clave existe; preserva la lista si un hilo concurrente añadió un emisor (no orfana suscripciones activas). |
+| C3 | Prohibido comprobar `list.isEmpty()` fuera de `compute`/`computeIfPresent` ni usar `streams.remove(key, list)` | **PASS** | Inspección de `Api.java`: no hay `streams.remove(...)` ni comprobación de `isEmpty()` fuera de las operaciones atómicas. |
+| C4 | Helper unificado e idempotente `removeEmitter(sessionId, emitter)` usado por `onCompletion`, `onTimeout`, `onError`, fallo de handshake y fallo de `publish()` | **PASS** | `Api.java:42-51,55-54,62-63`; `testRemoveEmitterIdempotence` comprueba múltiples retiros como no-op seguro. |
+| C5 | Ninguna operación bloqueante, I/O de socket (`emitter.send`), terminación (`emitter.complete`) ni catálogo dentro de `compute`/`computeIfPresent` | **PASS** | `publish()` itera sobre la lista COW fuera de locks de mapa; `e.complete()` envuelto en `try-catch`; `catalog.ensure()` fuera de los bloques atómicos. |
+| C6 | Callbacks idempotentes | **PASS** | `removeEmitter` es idempotente; `testRemoveEmitterIdempotence` y `testBrokenEmitterDoesNotThrowAndIsRemoved` lo cubren. |
+| C7 | Otra sesión sana (aislamiento) | **PASS** | `ApiPublishTest.testSessionIsolation`: fallos en sesión A no afectan entrega a sesión B. |
+| C8 | Sin emitter huérfano | **PASS** | `ApiPublishTest.testConcurrentCleanupVsNewRegistrationDoesNotOrphanSubscription`: 50 rondas, la nueva suscripción permanece en `streams` y recibe `publish()`. |
+| C9 | Regresión concurrente determinista (sin `Thread.sleep`) | **PASS** | `CountDownLatch` + `CyclicBarrier`-style sincronía por latch; `testConcurrentCleanupVsNewRegistrationDoesNotOrphanSubscription` y `testConcurrentRegistrationLimitFive`. |
+| C10 | Límite de 5 bajo concurrencia: exactamente 5 aceptados, 5 rechazados con `IllegalArgumentException` | **PASS** | `testConcurrentRegistrationLimitFive`: 10 peticiones concurrentes, exactamente 5 aceptadas y 5 rechazadas, lista persistida en 5. |
+| C11 | Control positivo del baseline real (sin lambda sintética) | **PASS** | Builder ejecutó intercalación determinista sobre código exacto de v2.1 (`commit 59e4e41`) en `target/v21-control/`; defecto reproducido: nueva suscripción huérfana (`streams.get(sessionId)` es NULL). Evidencia: `docs/orchestration/issue-6-corrective-evidence/builder/sse-v2.2/baseline-p2-interleaving.log`. No hay lambda de control positivo en las pruebas v2.2 (eliminada la sintética de v2.1). |
+| C12 | Prueba HTTP SSE preservada: desconexión, confirmación, reconexión y recuperación por GET; asserts no debilitados | **PASS** | `StorefrontSseTest.testCompleteSseTransportLifecycle` intacto: servidor HTTP real (`RANDOM_PORT`), `HttpClient` lector SSE, streams A/B, evento inicial `conectado`, cierre de `readerA`, mutación offline vía API (HTTP 200 en POST), reapertura recibe `conectado`, GET refleja precio 35000, control positivo en B. |
+| C13 | No se tocó catálogo, persistencia, contratos REST, esquema SQLite v2, estáticos frontend, audio/voz/`MediaConfig` | **PASS** | Diff de `ce9899e` sobre la base: solo `Api.java` (métodos `stream`/`publish`/`removeEmitter`), `ApiPublishTest.java` y `StorefrontSseTest.java` (alcance cerrado del diseño). `target/` gitignorado. |
+| C14 | Zoom nativo 200% | **Aceptación manual del usuario** | El usuario aceptó explícitamente el zoom nativo ("la #6 el zoom ya lo probe yo y funciona, dalo por hecho"). Se conserva la atribución manual; QA no re-exige automatización ni atribuye evidencia técnica de navegador. |
 
-**Conclusión de v2.1:** aunque el build y los casos SSE solicitados pasan, no emito `QA_APPROVED` porque la limpieza puede retirar una lista que ya contiene una conexión activa. La adenda manual del zoom permanece aceptada. No modifiqué código de producción ni pruebas; la corrección corresponde a Antigravity y requiere una nueva reauditoría sobre su SHA.
+---
+
+## 5. Evidencia propia de QA (ruta y procedencia)
+
+Guardada bajo `docs/orchestration/issue-6-corrective-evidence/qa/v2.2/` (archivos nuevos, propios de esta auditoría; no sobrescribe builder ni diseños):
+
+- `commit.txt`: SHA auditado `5008d07487f487f8428f5fad46a3a2e31eb7f3df`.
+- `clean-verify.log`: log completo de `mvn -B clean verify` sobre la exportación limpia (`EXIT_CODE=0`, `BUILD SUCCESS`). SHA-256 en `clean-verify.log.sha256` (`b80d3ea9…`).
+- `taller-1.0.0.jar.sha256`: hash del artefacto `788fff32…`.
+- `surefire-reports/TEST-*.xml`: reportes Surefire de las 17 suites (199 tests, 0 fallos/0 errores/0 omitidos).
+
+---
+
+## 6. Limitaciones
+
+- El criterio de zoom nativo a 200% se cubre por aceptación manual explícita del usuario; esta auditoría no aporta evidencia técnica de indicador de menú del navegador, método ni capturas, y no re-exige automatización (atribución manual conservada por decisión del usuario).
+- No se re-ejecutó el control positivo del baseline sobre v2.1 en esta sesión de QA; se inspeccionó y referenció la evidencia ya persistida por el builder en `docs/orchestration/issue-6-corrective-evidence/builder/sse-v2.2/baseline-p2-interleaving.log` (sin modificarla).
+- No se modificó código de producción ni pruebas; no se desactivó ninguna prueba ni se usó `skipTests` ni exclusiones.
+
+---
+
+## 7. Conclusión
+
+Todos los criterios de aceptación del diseño v2.2 están verificados: serialización atómica por clave (`compute`/`computeIfPresent`), retiro idempotente, I/O fuera de locks, callbacks idempotentes, aislamiento de sesiones, ausencia de emitter huérfano, regresión concurrente determinista, control positivo real del baseline (sin lambda sintética), límite de 5 bajo concurrencia, prueba HTTP SSE preservada con asserts intactos, y compilación limpia JDK 25 (`mvn -B clean verify`, `EXIT_CODE=0`, 199/0/0/0).
+
+**Veredicto final: QA_APPROVED** sobre commit `5008d07487f487f8428f5fad46a3a2e31eb7f3df`.
+
+Informe y evidencia autorizados para commit únicamente en rama `GonzaCarrillo/reconcile-6-storefront` (no `main`, sin push, sin merge, sin cierre de issue). Habilita la Fase 4 de Codex (aprobación arquitectónica final).
