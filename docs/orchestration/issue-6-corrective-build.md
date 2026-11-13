@@ -1,45 +1,63 @@
-# Reporte de Construcción Correctiva — Issue #6: Vidriera accesible con SSE (v2.1)
+# Reporte de Construcción Correctiva — Issue #6: Vidriera accesible con SSE (v2.2)
 
 **Fecha:** 2026-11-13  
 **Agente:** Antigravity (Software Builder / Implementer)  
 **Coordinador:** Orca (Lead Software Engineer y Orquestador Técnico)  
-**Tarea / Dispatch:** `task_439c9f85845f` / `ctx_decc904f5975` (continuación de `task_bcc51c9f95ca` / `ctx_74037e27e6e5` y diagnóstico `task_2d54903f5c8c`)  
+**Tarea / Dispatch:** `task_5b89cd42690b` / `ctx_ebcd89119efe` (resolución de P2 QA_REJECTED sobre `commit 265ab8e`)  
 **Terminal Builder:** `term_7f7d8270-a58a-478b-831d-3b43b8c6fcce`  
 **Terminal Coordinador:** `term_104a5a3f-cca1-4813-a727-30ddd7a9152f`  
 **Worktree:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront`  
 **Rama:** `GonzaCarrillo/reconcile-6-storefront`  
-**Commit base de fase 2 v2.1:** `e89c04bd225460683f004b6a59510d9003b1e191`  
-**Commit implementado y verificado:** `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`  
-**Diseño de referencia:** Codex v2.0 (`docs/orchestration/issue-6-corrective-design.md`) y Especificación v2.1 (`docs/orchestration/issue-6-sse-design-v2.1.md`)  
+**Commit base de fase 2 v2.2:** `265ab8e60e0a51c4a5d898a129d20c5d794cb5c8`  
+**Commit implementado y verificado:** `ce9899eac3202d785293969bd38c1d9e62ba8e8e`  
+**Diseño de referencia:** Codex v2.0 (`docs/orchestration/issue-6-corrective-design.md`), v2.1 (`docs/orchestration/issue-6-sse-design-v2.1.md`) y v2.2 (`docs/orchestration/issue-6-sse-design-v2.2.md`)  
 
 ---
 
-## 1. Alcance Cerrado y Resumen de la Intervención
+## 1. Alcance Cerrado y Resumen de la Intervención v2.2
 
-1. **Código de producción estático (CSS/JS/HTML):**
-   - Preservado intacto tras demostrarse en la inspección visual/DOM previa que la grilla responsive, la uniformidad de tarjetas (0.00 px de diferencia), la proporción 4:3 de fotografías, el reflow sin scroll horizontal, el diálogo modal `<dialog id="zoom">` y el simulador semántico operan al 100% de conformidad.
-2. **Aceptación manual de Zoom 200% (V1-zoom200):**
-   - Conforme a la instrucción oficial del Coordinador Orca (`msg_651772357c1e`), el usuario probó y aceptó manualmente la funcionalidad de zoom nativo al 200% en su navegador de escritorio (*"la #6 el zoom ya lo probe yo y funciona, dalo por hecho..."*). El bloqueo ambiental previo queda formalmente levantado por decisión y verificación directa del usuario, sin manipulación de zoom CSS ni escala DPR emulada.
-3. **Aislamiento de fallos en el ciclo de vida SSE (`Api.java` — v2.1):**
-   - Implementada la especificación técnica de Codex v2.1 para resolver de raíz el fallo intermitente HTTP 500 detectado durante la auditoría QA de Fase 3 (`issue-6-corrective-qa.md` / `issue-6-sse-diagnosis.md`).
-   - `Api.publish(String id)`:
-     - Remoción inmediata y sincrónica del emisor fallido de la lista `CopyOnWriteArrayList` en caso de error en `e.send(...)`.
-     - Limpieza atómica e idempotente del mapa de sesiones `streams` si la lista queda vacía (`streams.remove(id, list)`).
-     - Protección de `e.complete()` con bloque `try-catch (Exception ignored)` para evitar que excepciones asíncronas de Tomcat 10.1 (`IllegalStateException` / `AsyncRequestNotUsableException: Response not usable after response errors`) escapen del método `publish` y aborten la mutación transaccional con HTTP 500.
-     - Protección idéntica en el callback `onTimeout` ante cierres concurrentes.
-     - Acceso package-private al mapa `streams` para posibilitar auditoría y pruebas unitarias deterministas sin romper encapsulamiento público.
-4. **Pruebas y Verificación:**
-   - Creado `src/test/java/com/norma/taller/ApiPublishTest.java` con 5 pruebas unitarias deterministas (aislamiento de fallos, saneamiento de emisores, sesiones independientes, control positivo de fallo del baseline).
-   - Actualizado `src/test/java/com/norma/taller/StorefrontSseTest.java` asegurando aserciones de código HTTP 200 en mutaciones posteriores al cierre del lector SSE offline.
-5. **Frontera estricta e invariantes respetadas:**
-   - Cero modificaciones a la lógica de catálogo, persistencia, esquemas SQLite v2, parsing de intenciones, dependencias Maven ni lógica de voz/media (#5).
+Conforme a la especificación correctiva aprobada por Orca y Codex (v2.2):
+1. **Resolución del Hallazgo P2 de Concurrencia:**
+   - GitHub Copilot identificó en v2.1 que la comprobación `list.isEmpty()` y la posterior llamada `streams.remove(sessionId, list)` no eran atómicas respecto a nuevos registros `stream()` concurrentes. Si un cliente abría una conexión justo en esa ventana, obtenía la misma lista mediante `computeIfAbsent` y la llamada diferida `streams.remove(sessionId, list)` eliminaba la clave del mapa, dejando la nueva conexión huérfana.
+   - En v2.2 se serializan atómicamente por clave todas las mutaciones sobre el mapa `streams`:
+     - **Registro:** Se ejecuta exclusivamente mediante `streams.compute(sessionId, ...)`. Obtiene o crea la lista `CopyOnWriteArrayList`, evalúa el límite de 5 ventanas (`list.size() >= 5`) y añade el emisor dentro del lock del nodo en `ConcurrentHashMap`.
+     - **Retiro:** Se ejecuta exclusivamente mediante `streams.computeIfPresent(sessionId, ...)`. Retira solo el emisor indicado de la lista actual y devuelve `null` si y solo si la lista queda vacía dentro de la misma operación atómica.
+     - **Helper común:** Se introdujo `removeEmitter(sessionId, emitter)` compartido por `onCompletion`, `onTimeout`, `onError`, fallo de handshake inicial en `stream()` y fallo de notificación en `publish()`. Es completamente idempotente.
+     - **Operaciones fuera de lock:** Las notificaciones I/O (`e.send(...)`), la terminación protegida (`try { e.complete(); } catch (Exception ignored) {}`), y las verificaciones de catálogo (`catalog.ensure(...)`) se ejecutan estrictamente fuera de `compute` o `computeIfPresent`.
+2. **Código de Producción Estático:**
+   - Preservado intacto tras verificarse que la grilla responsive, la uniformidad de tarjetas (0.00 px), la proporción 4:3 de fotografías, el diálogo modal `<dialog id="zoom">` y el simulador semántico operan al 100% de conformidad.
+3. **Aceptación manual de Zoom 200% (V1-zoom200):**
+   - Confirmada y aceptada manualmente por el usuario. El bloqueo ambiental queda formalmente levantado y cerrado sin manipulación de zoom CSS ni DPR emulado.
+4. **Gobernanza de QA:**
+   - Conforme a la instrucción del usuario comunicada en el despacho, GitHub Copilot finalizó su ciclo de auditoría y las futuras fases de auditoría QA quedan asignadas a OpenCode / Nemotron.
 
 ---
 
-## 2. Implementación Técnica Detallada (Codex v2.1)
+## 2. Implementación Técnica en `Api.java` (v2.2)
 
-### 2.1 Modificación en `Api.java`
 ```java
+ @GetMapping(value="/api/catalog/stream",produces=MediaType.TEXT_EVENT_STREAM_VALUE)
+ public SseEmitter stream(@RequestParam String sessionId){
+  catalog.ensure(sessionId);var emitter=new SseEmitter(300000L);
+  streams.compute(sessionId,(k,currentList)->{
+   var list=currentList!=null?currentList:new CopyOnWriteArrayList<SseEmitter>();
+   if(list.size()>=5)throw new IllegalArgumentException("Ya hay varias ventanas abiertas para esta sesión.");
+   list.add(emitter);
+   return list;
+  });
+  Runnable cleanup=()->removeEmitter(sessionId,emitter);
+  emitter.onCompletion(cleanup);
+  emitter.onTimeout(()->{cleanup.run();try{emitter.complete();}catch(Exception ignored){}});
+  emitter.onError(e->cleanup.run());
+  try{emitter.send(SseEmitter.event().name("catalog-update").data("conectado"));}catch(IOException e){cleanup.run();}
+  return emitter;
+ }
+ void removeEmitter(String sessionId,SseEmitter emitter){
+  streams.computeIfPresent(sessionId,(k,list)->{
+   list.remove(emitter);
+   return list.isEmpty()?null:list;
+  });
+ }
  void publish(String id){
   var list=streams.get(id);
   if(list==null)return;
@@ -47,50 +65,40 @@
    try{
     e.send(SseEmitter.event().name("catalog-update").data("actualizado"));
    }catch(Exception ex){
-    list.remove(e);
-    if(list.isEmpty())streams.remove(id,list);
+    removeEmitter(id,e);
     try{e.complete();}catch(Exception ignored){}
    }
   }
  }
 ```
-- **Garantías logradas:**
-  1. Aislamiento transaccional total: la mutación de base de datos nunca falla por el estado de la conexión SSE del cliente.
-  2. Eliminación de carreras: si un cliente desconectado produce varias mutaciones seguidas, el emisor roto ya fue retirado en la primera iteración, impidiendo acumulación de fallos.
-  3. Difusión a emisores activos: si un emisor falla, la iteración continúa y los emisores activos de la misma o de otras sesiones reciben su notificación en tiempo y forma.
-
-### 2.2 Suite Unitaria `ApiPublishTest.java`
-- `testBrokenEmitterDoesNotThrowAndIsRemoved`: Verifica que un emisor que lanza `IOException` en `send()` e `IllegalStateException` en `complete()` no propaga excepción y es retirado de la lista y del mapa.
-- `testHealthyEmitterStillReceivesWhenAnotherFails`: Verifica que un emisor sano en la misma sesión recibe el evento aun cuando otro emisor falla.
-- `testSessionIsolation`: Verifica que un fallo en la sesión A no afecta la entrega de eventos a la sesión B.
-- `testPublishOnNonExistentSession`: Verifica que publicar en una sesión inexistente o sin emisores es un no-op seguro.
-- `testPositiveControlBaselineBehavior`: Control positivo que reproduce y demuestra que el código anterior sin try-catch arrojaba la excepción asíncrona hacia el llamador.
 
 ---
 
-## 3. Evidencia Funcional Previa (Métricas de Reflow y Viewports)
+## 3. Demostración Empírica del Defecto Baseline y Pruebas Deterministas
 
-Se mantienen vigentes los resultados obtenidos en el arnés de ejecución aislada en servidor real (`docs/orchestration/issue-6-corrective-evidence/builder/builder_evidence.json`):
+### 3.1 Control Positivo sobre el Baseline Real (sin lambdas sintéticas)
+En cumplimiento de la exigencia del despacho:
+- Se ejecutó una prueba de intercalación determinista en un entorno temporal (`target/v21-control/`) sobre el código exacto de v2.1 (`commit 59e4e41`).
+- **Defecto reproducido:** Cuando el cleanup retira el último emisor y un nuevo `stream()` se suscribe concurrentemente antes de que se ejecute `streams.remove(sessionId, list)`, el método `streams.remove` del baseline elimina la lista del mapa a pesar de que ya contiene la nueva suscripción activa.
+- **Evidencia persistida:** `docs/orchestration/issue-6-corrective-evidence/builder/sse-v2.2/baseline-p2-interleaving.log` (SHA-256: `dc7aa757c8bbe37dda6d55f49a15807f5b64446c87197f1553bb6d5d6a626206`). Registro explícito: `[DEMOSTRACIÓN DEFECTO BASELINE] La nueva suscripción quedó huérfana: streams.get(sessionId) es NULL`.
 
-| Viewport | Ancho (CSS px) | Alto (CSS px) | Tarjetas | Diff Altura | Scroll Horizontal | Aspect Ratio Fotos (1..3) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `desktop_1440` | 1440 | 900 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
-| `tablet_768` | 768 | 1024 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
-| `reflow_640_zoom200` | 640 | 900 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
-| `mobile_375` | 375 | 812 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
-| `mobile_320_min` | 320 | 640 | 8 | **0.00 px** | **false** | 1.333 (4:3) |
-
-- **Tipografía (#font):** Escala de 22.0 px a 28.6 px (+30% exacto).
-- **Diálogo modal (#zoom):** Foco atrapado en `#close-zoom`, cierre con `Escape` y retorno de foco.
-- **Simulador semántico:** 11 controles presentes y accesibles.
+### 3.2 Nueva Suite Unitaria Concurrente en `ApiPublishTest.java`
+Se implementaron 7 pruebas unitarias deterministas:
+1. `testBrokenEmitterDoesNotThrowAndIsRemoved`: Emisor roto con fallos en `send()` y `complete()` es retirado y el mapa limpiado sin propagar excepción HTTP 500.
+2. `testHealthyEmitterStillReceivesWhenAnotherFails`: Emisores sanos en la misma sesión continúan recibiendo eventos tras el fallo de otro emisor.
+3. `testSessionIsolation`: Fallos en sesión A no afectan la entrega a sesión B.
+4. `testPublishOnNonExistentSession`: Publicación en sesión inexistente es no-op seguro.
+5. `testConcurrentCleanupVsNewRegistrationDoesNotOrphanSubscription`: **Regresión P2 determinista.** 50 rondas con `CountDownLatch` ejecutando simultáneamente el retiro del emisor previo y el registro de un nuevo emisor. En el 100% de las rondas, la nueva suscripción permanece registrada en `streams` y recibe `publish()` sin orfanarse.
+6. `testConcurrentRegistrationLimitFive`: 10 peticiones concurrentes simultáneas de registro con `CountDownLatch`. Exactamente 5 son aceptadas y exactamente 5 son rechazadas con `IllegalArgumentException`, manteniendo la lista en exactamente 5 emisores.
+7. `testRemoveEmitterIdempotence`: Múltiples retiros del mismo emisor son no-ops seguros que no corrompen el mapa.
 
 ---
 
 ## 4. Evidencia de Compilación y Verificación Limpia (JDK 25)
 
 Siguiendo el protocolo oficial de `testing-and-qa`:
-- **Commit exportado y auditado:** `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`
-- **Ruta de exportación limpia:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa.66XhTA`
+- **Commit exportado y auditado:** `ce9899eac3202d785293969bd38c1d9e62ba8e8e`
+- **Ruta de exportación limpia:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa.3FRXag`
 - **Entorno de compilación:**
   - JDK: Microsoft OpenJDK 25.0.4.1+1-LTS (`/home/gonzalocar/.jdks/ms-25.0.4.1`)
   - Maven: Apache Maven 3.8.7
@@ -106,17 +114,17 @@ Siguiendo el protocolo oficial de `testing-and-qa`:
     -Dnorma.uploads="$(pwd)/target/export-runtime/uploads" \
     -Dgroq.api.key=
   ```
-- **Resultado:** `BUILD SUCCESS` (Exit code: `0`, duración: `01:37 min`).
+- **Resultado:** `BUILD SUCCESS` (Exit code: `0`, duración: `02:34 min`).
 - **Sumas de comprobación SHA-256:**
-  - Registro de verificación (`verify.log`): `cf87e7d64938cb78cae14b285eed3d933deeb3876d606f147cad12486e8d39f5`
-  - Archivo ejecutable empaquetado (`taller-1.0.0.jar`): `6e4d0012d0e920af847ebeb2447c8773bc28c14e766c2f8a0a850b99455051a8`
-- **Suites ejecutadas:** 17 suites Surefire, **197 tests ejecutados, 0 fallos, 0 errores, 0 omitidos** (incluye los 5 tests de `ApiPublishTest` y `StorefrontSseTest`).
+  - Registro de verificación (`verify.log`): `e7e4ce4be868c9f2b3427b0f8853a62961fb276d03e54ef0b08cc106e91a93d4`
+  - Archivo ejecutable empaquetado (`taller-1.0.0.jar`): `35e37c5855f1f461ef0a1f24dca069d855245a77e9fefa03705146ad340c589d`
+- **Suites ejecutadas:** 17 suites Surefire, **199 tests ejecutados, 0 fallos, 0 errores, 0 omitidos** (incremento neto de 2 tests deterministas sobre v2.1).
 
 ### Desglose de Suites Surefire XML (`target/surefire-reports/` en exportación limpia):
 | Archivo de Reporte | Tests | Fallos | Errores | Omitidos |
 |---|:---:|:---:|:---:|:---:|
 | `TEST-com.norma.taller.ApiAudioTest.xml` | 4 | 0 | 0 | 0 |
-| `TEST-com.norma.taller.ApiPublishTest.xml` | 5 | 0 | 0 | 0 |
+| `TEST-com.norma.taller.ApiPublishTest.xml` | 7 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotApiTest.xml` | 6 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotEngineTest.xml` | 30 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.BotPersistenceTest.xml` | 1 | 0 | 0 | 0 |
@@ -132,21 +140,23 @@ Siguiendo el protocolo oficial de `testing-and-qa`:
 | `TEST-com.norma.taller.PhotoProcessorTest.xml` | 19 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.StorefrontContractTest.xml` | 6 | 0 | 0 | 0 |
 | `TEST-com.norma.taller.StorefrontSseTest.xml` | 1 | 0 | 0 | 0 |
-| **Total General** | **197** | **0** | **0** | **0** |
+| **Total General** | **199** | **0** | **0** | **0** |
 
 ---
 
-## 5. Artefactos de Evidencia Generados
-- `docs/orchestration/issue-6-sse-design-v2.1.md`: Especificación técnica v2.1 de aislamiento SSE aprobada.
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/commit.txt`: Hash del commit verificado (`59e4e41d2e8d92b76511a195ac9409fb2c9b1869`).
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/clean-export-verify.log`: Log completo de la ejecución limpia de Maven verify.
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/clean-export-verify.log.sha256`: Suma SHA-256 del log.
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/taller-1.0.0.jar.sha256`: Suma SHA-256 del binario empaquetado.
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/TEST-com.norma.taller.ApiPublishTest.xml`: Reporte Surefire XML de pruebas deterministas de publish.
-- `docs/orchestration/issue-6-corrective-evidence/builder/sse/TEST-com.norma.taller.StorefrontSseTest.xml`: Reporte Surefire XML del test de integración de SSE.
+## 5. Artefactos de Evidencia Persistidos
+Directorio: `docs/orchestration/issue-6-corrective-evidence/builder/sse-v2.2/`
+- `commit.txt`: Hash del commit verificado (`ce9899eac3202d785293969bd38c1d9e62ba8e8e`).
+- `clean-export-verify.log`: Log completo de la ejecución de `mvn clean verify`.
+- `clean-export-verify.log.sha256`: Hash SHA-256 del log.
+- `taller-1.0.0.jar.sha256`: Hash SHA-256 del artefacto empaquetado.
+- `TEST-com.norma.taller.ApiPublishTest.xml`: Reporte Surefire XML de las 7 pruebas de aislamiento y concurrencia.
+- `TEST-com.norma.taller.StorefrontSseTest.xml`: Reporte Surefire XML del test de integración SSE.
+- `baseline-p2-interleaving.log`: Log de reproducción del defecto de carrera P2 sobre el baseline v2.1.
+- `baseline-p2-interleaving.log.sha256`: Hash SHA-256 del log de control positivo.
 
 ---
 
 ## 6. Declaración de Diferencia Documental y Estado de Entrega
-1. **Diferencia documental:** Conforme al estándar `testing-and-qa`, se declara expresamente que la verificación limpia fue ejecutada sobre el commit de código `59e4e41d2e8d92b76511a195ac9409fb2c9b1869`. El commit resultante que incluye este reporte y los artefactos de evidencia no altera el código compilable ni los binarios de la aplicación.
-2. **Listo para Fase 3 (Re-auditoría QA por GitHub Copilot):** La implementación correctiva se encuentra cerrada, verificada y documentada, lista para que el Lead Software Engineer (Orca) asigne la Fase 3 a GitHub Copilot y la posterior Fase 4 a Codex.
+1. **Diferencia documental:** Conforme a `testing-and-qa`, se declara que la compilación y pruebas limpias se ejecutaron sobre el commit `ce9899eac3202d785293969bd38c1d9e62ba8e8e`. La adición de este reporte final y los archivos de evidencia en un commit documental no altera el código compilable ni los binarios generados.
+2. **Listo para Reauditoría QA (OpenCode / Nemotron):** La implementación v2.2 se entrega formalmente al Coordinador Orca para su remisión a la auditoría QA independiente de OpenCode, previa a la aprobación final de Codex (Fase 4).
