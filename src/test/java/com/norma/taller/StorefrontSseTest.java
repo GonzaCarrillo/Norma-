@@ -10,6 +10,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -418,19 +419,21 @@ public class StorefrontSseTest {
             MultiValueMap<String, Object> msgOfflineProp = new LinkedMultiValueMap<>();
             msgOfflineProp.add("sessionId", sessionA);
             msgOfflineProp.add("text", "A la número 1 subila a treinta y cinco mil pesos");
-            restClient.post()
+            var respProp = restClient.post()
                     .uri("/api/bot/message")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(msgOfflineProp)
                     .retrieve()
                     .toBodilessEntity();
+            assertEquals(HttpStatus.OK, respProp.getStatusCode());
 
-            restClient.post()
+            var respYes = restClient.post()
                     .uri("/api/bot/message")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(msgYes)
                     .retrieve()
                     .toBodilessEntity();
+            assertEquals(HttpStatus.OK, respYes.getStatusCode());
 
             // Reabrir stream A (reconexión)
             HttpRequest reqA2 = HttpRequest.newBuilder()
