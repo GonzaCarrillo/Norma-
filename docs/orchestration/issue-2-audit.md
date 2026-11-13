@@ -426,3 +426,118 @@ Criterio de Aceptación (Definition of Done): Arranque repetido sobre cualquier 
 ```
 
 **Conclusión final de esta auditoría v1.2: FAIL sobre 123d23a.** Se reconocen reparaciones C1–C3 y build reproducible; queda un defecto concreto de reinicio (C4) y brechas acotadas de evidencia. Issue #2 permanece abierta hasta corrección y aceptación de Orca/Codex.
+
+
+---
+
+## Addendum de reauditoría final v1.3 — 2026-11-12
+
+**DICTAMEN: PASS para issue #2 sobre 09d12467b8917f474eb3fd6579afaf90aefc4769**, incorporando la reparación C4 de **f0ba2d05a2dd533c6a9339c368e70717a60c3a75**. Referencia: diseño Codex v1.0 aprobado por Orca, sin cambios de contratos ni alcance. Tarea task_6c15ea62c5d7, dispatch ctx_17dca5c010eb. Este dictamen corresponde al estado actual y sustituye los FAIL históricos para los hallazgos corregidos, conservando sus evidencias y límites íntegros arriba.
+
+La revisión conjunta de implementación, regresiones versionadas, exportación limpia y smoke real proporciona evidencia suficiente de los criterios aprobados de persistencia, aislamiento, seed, numeración, restauración y migración de #2. No se certifican por extensión FSM/deshacer de #3, medios/voz, frontend/SSE ni despliegue de issues posteriores. El auditor no cierra la issue ni hace push; la aceptación administrativa final sigue en Orca.
+
+### 1. Alcance y trazabilidad comprobados
+
+Se revisaron AGENTS.md, diseño/aprobación, historial completo de auditoría v1.0–v1.2, orden de tercer retrabajo, ambos commits, código/tests afectados, contrato Catalog y evidencia consolidada. `git diff 123d23a 09d1246 --check`: exit0. Los cambios de estos dos commits están limitados a CatalogDatabaseInitializer.java, CatalogMigrationTest.java y CatalogRepositoryTest.java, archivos permitidos por §7. No se alteraron POM, API, parser, BotEngine, frontend, seed ni contracts REST.
+
+Se compararon **todos los archivos versionados** de 09d1246 con /tmp/norma-export usando git ls-tree/git show: **cero diferencias**. Las clases Catalog y CatalogDatabaseInitializer dentro de BOOT-INF/classes del JAR coinciden con las de target/classes de la exportación. La exportación y su suite no incluyen IntentFallback.java ni ApiTest.java locales sin seguimiento.
+
+**SHA-256 del JAR ejecutado y entregado:**
+
+```text
+4bd8ad9558ce997b7759f30259ce6c4710aaa1d757c16a25d07e59412728b9c7
+```
+
+Calculado directamente sobre /tmp/norma-export/target/taller-1.0.0.jar; coincide con /tmp/norma_final_delivery_v1_3_report.txt y /tmp/smoke_evidence_final.txt. Queda resuelta la discrepancia entre JAR de smoke y JAR final que señalaba v1.2.
+
+### 2. Build y tests observados, sin repetir ejecución
+
+Fuentes: **/tmp/norma-verify-clean-export-final.log**, **/tmp/norma_final_delivery_v1_3_report.txt** y **/tmp/norma-export/target/surefire-reports/TEST-*.xml**, con sus TXT. El log de exportación incluye clean, compilación release25, pruebas, JAR/repackage y **BUILD SUCCESS**, finalizado **2026-11-12T23:15:02-03:00**. XML: java.version=**25.0.5.0.3**, basedir=**/tmp/norma-export**.
+
+| Suite versionada | Tests | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| CatalogRepositoryTest | 7 | 0 | 0 | 0 |
+| CatalogPersistenceTest | 3 | 0 | 0 | 0 |
+| CatalogMigrationTest | 3 | 0 | 0 | 0 |
+| FlowTest | 4 | 0 | 0 | 0 |
+| Total | **17** | **0** | **0** | **0** |
+
+Comando de verificación de la entrega: Maven clean/verify con JDK /tmp/norma-jdk en la exportación; el resultado anterior se observa en el log y artefactos. No se confunde con target del workspace, ApiTest sin seguimiento ni logs antiguos. En esta auditoría **no se ejecutaron Maven, tests ni nuevos probes**: no apareció una nueva brecha funcional que justificase repetirlos. El total17 se usa como recuento de métodos ejecutados, no como supuesto de exhaustividad de combinaciones.
+
+### 3. Cierre de F1–F7 y C1–C4
+
+| Hallazgo | Estado final | Código y evidencia de cierre |
+|---|---|---|
+| F1 / C1 / C2 | PASS | DDL canónico completo, defaults/tipos/nullability, FK RESTRICT, UNIQUE no parcial, seis definiciones de trigger sensibles a literales y probes aislados con padre/control positivo y causa CHECK. Los tests de guardas homónimas/minúsculas, esquema inválido y semilla alterada siguen en M2; la corrección nueva no modifica esos controles |
+| F2 | PASS | Reconocimiento restrictivo de legacy y rechazo de objetos/DDL desconocidos previo a reconstrucción; casos trigger, índice y view en M3. No hay drop/reseed para “reparar” datos incompatibles |
+| F3 | PASS | Se preserva max(sequence histórica previa, sequence generada) en la transacción; fixture id1000 borrado/id5 vivo y segundo arranque comprueban el high-water, junto a snapshots completos de M1/M3 |
+| F4 | PASS | typeof entero y rango mediante long antes de normalizar next_number; productos con tipos/rangos validados; REAL1.5/texto/negativo/out-of-range rechazados en M3. Un entero positivo bajo válido se normaliza según diseño |
+| F5 / C3 | PASS | Wrapper propaga la causa SQL, flag y mensaje exigen alcanzar quick_check; FK capturada en la conexión fallida antes de close; snapshot lógico completo igual tras rollback y recuperación posterior. R6 ejercita fallos ensure/restore/reset y R7 altas concurrentes |
+| F6 | PASS | Lectura efectiva de PRAGMA, FK restablecida en finally y prueba de renovación física con conexión raw distinta y checks/FK repetidos en P3 |
+| F7 | PASS funcional | Test de contexto nombrado honestamente, P2 externo con dos procesos y hash final concordante, fixture parado con metadata/contador no triviales, documentación sin garantía física universal; límite del exit code anotado en §6 |
+| C4 | PASS | Se eliminan los cuatro INSERT de ids públicos fijos y se generan ids efímeros UUID dentro de savepoint, con rollback/release garantizados. M2 incluye sesiones públicas preexistentes tanto en v2 como legacy y compara snapshots exactos después de reinicializar |
+
+La regresión C4 versionada contiene valid_sess_check_1/2 y valid_sess_prod_1/2; no contiene exactamente los cuatro ids que figuraban en los probes viejos (check_1/2/3/4). La inspección del código confirma que **todos** los probes anteriores check_1/2/3/4 fueron reemplazados por ids aleatorios, por lo que no queda la colisión determinista de check_3/4. No se ha cambiado Catalog.valid ni reservado nombres de clientes. La prueba confirma ausencia de efectos persistentes en tablas, datos, sequence y versión; no se afirma probabilidad matemática cero de colisión de UUID.
+
+### 4. Matriz de criterios R/P/M/G del diseño aprobado
+
+El dictamen por criterio combina pruebas conductuales reales y revisión del contrato/SQL; no significa que cada combinación posible tenga un método JUnit propio. Se priorizan los escenarios de aceptación originales y regresiones que reprodujeron defectos, sin ampliar la fase a requisitos nuevos.
+
+| Criterio | Dictamen | Evidencia observada |
+|---|---|---|
+| R1 — Seed/clonado/aislamiento | PASS | Ocho clones con números/campos correctos e ids propios, next9; PRICE/IMAGE/SOLD/CREATE en A conservan B y DEFAULT |
+| R2 — Inicialización/vacío | PASS | La fila sessions es marcador; ensure repetido, restore([]) y todas vendidas no resembran; reset explícito repone ocho. Smoke devuelve [] tras segundo proceso |
+| R3 — Numeración estable | PASS | Alta9/10, venta, restore y reset no rebajan next; siguiente11; otra sesión empieza9. Reinicio de proceso conserva next15 incluso tras reset |
+| R4 — Validación/targeting | PASS | Cambios positivos limitados al campo objetivo, destinos inexistentes/UNKNOWN rechazados; precios inválidos, ruta/título vacíos, duplicado/número inválido, REAL/no-numérico y agotamiento. 09d1246 añade igualdad de todos los campos Product y Session tras errores de apply |
+| R5 — Límites/DEFAULT | PASS | Nueve entradas públicas validan sesión incluida null/DEFAULT; seis guardas SQL; traslado hacia DEFAULT con número libre999 falla por causa de guarda; comparación final de seed completa |
+| R6 — Restore/reset/atomicidad | PASS | Lote cruzado/duplicado se valida antes de mutar; fallo real durante ensure deja cero fila/clones; restore fallido conserva Product completo y Session; reset fallido conserva contenido y metadata; reset exitoso restaura seed y limpia estado/pending/temp/snapshot |
+| R7 — Concurrencia en proceso | PASS | ensure concurrente y cinco CREATE: números únicos9..13, next14, sesión B intacta, timeouts y cierre de executors |
+| P1 — Persistencia de archivo | PASS | Pools/contextos cerrados y reabiertos conservan precio/foto/sold/alta, contador, borrador/foto/snapshot y sesión vacía |
+| P2 — Reinicio real | PASS | JAR final exacto, PIDs112232/112346, mismo archivo temporal, fixture con primer proceso detenido, venta/vacío y metadata no nula/next15 preservados; GET/DEFAULT400/POST reset200 y limpieza sin rebajar contador |
+| P3 — WAL y conexiones | PASS | Archivo WAL, foreign_keys1, busy_timeout5000, synchronous NORMAL; nueva conexión física raw distinta y rechazo de huérfano |
+| M1 — Migración normal/idempotencia | PASS | Legacy poblado/vacío, vendidos y JSON; ids/campos preservados, contador normalizado, DEFAULT añadido, foreign_key_check vacío y quick_check ok. 09d1246 compara snapshot completo tras segundo arranque |
+| M2 — DEFAULT/compatibilidad | PASS | Legacy DEFAULT válido conserva ids, parcial se rechaza, v2 con seed alterada/guardas ausentes u homónimas/DDL incompatible se rechaza; C4 legacy y v2 reinicializan sin alterar snapshot |
+| M3 — Fallo cerrado/rollback | PASS | Huérfanos, versión futura, trigger/índice/view extra y tipos/rangos inválidos rechazados. Inyección real post-copia en quick_check con causa y punto alcanzado, FK misma conexión, snapshot completo intacto y arranque de recuperación exitoso |
+| G1 — Regresión limpia | PASS | FlowTest intacto4 + nuevas suites13 =17/0/0/0, JDK25, clean verify y JAR de exportación idéntica al commit; no se usa ApiTest local como evidencia versionada |
+
+Las variantes ilustrativas adicionales mencionadas en los addenda (cada CHECK/default alterado de forma aislada, todo valor inválido combinatorio, todos los estados de metadata en cada fixture) no están todas representadas individualmente en las suites. No se declara cobertura exhaustiva de esas variaciones. La revisión del DDL exacto y las validaciones deterministas, junto con las regresiones y snapshots añadidos, permite cerrar los defectos y criterios funcionales de #2; no se detectó una incompatibilidad concreta pendiente que justifique otro ciclo de construcción. Los límites físicos permanecen fuera de esas garantías.
+
+### 5. Smoke final: evidencia y comparación antes/después
+
+Fuentes contrastadas: **/tmp/run_smoke_v2.sh**, **/tmp/smoke_evidence_final.txt**, **/tmp/norma_proc1_final.log**, **/tmp/norma_proc2_final.log**, **/tmp/resp_default.json**, **/tmp/resp_mutated_init.json**, **/tmp/resp_empty_init.json**, **/tmp/resp_p2_mutated.json**, **/tmp/resp_p2_empty.json** y **/tmp/resp_reset.json**. El consolidado v1_3 copia el reporte. No usar smoke_evidence_b2.txt ni reportes con hash c8c1/f99b para aceptar este commit.
+
+Ambos procesos usan el JAR SHA4bd8... y comandos con argumentos efectivos:
+
+```sh
+/tmp/norma-jdk/bin/java -jar /tmp/norma-export/target/taller-1.0.0.jar --server.port=18080 --spring.datasource.url=jdbc:sqlite:/tmp/norma_smoke_final.db --norma.uploads=/tmp/norma_smoke_final_uploads
+```
+
+Primer proceso PID112232 crea ambas sesiones con ocho productos; DEFAULT responde400. Sus logs muestran cierre graceful de Tomcat y Hikari antes de preparar fixture con Python/SQLite. Se marca vendida pieza1, se vacía la segunda sesión y se guarda:
+
+```text
+('smoke_mutated_01', 'AWAITING_DETAILS',
+ '{"draft_title":"Pieza Borrador","draft_price":12000}',
+ '/uploads/temp_smoke.png', '[{"piece_number":1,"sold":1}]', 15)
+```
+
+Segundo proceso PID112346 devuelve200/siete piezas disponibles sin #1, la otra sesión devuelve200/[] y el tuple completo anterior se registra igual antes de reset; las assertions del script exigen estado, campos no nulos y next15. POST reset=200 devuelve ocho piezas, repone #1 y registra:
+
+```text
+('smoke_mutated_01', 'IDLE', None, None, None, 15)
+```
+
+El script verifica los null y preservación de next15. Logs de ambos procesos contienen “Graceful shutdown complete” y “HikariPool-1 - Shutdown completed”. Las respuestas JSON guardadas coinciden con las cantidades y exclusión de pieza vendida. El JSON de borrador/snapshot del smoke es opaco para el repositorio; se verifica su persistencia exacta, no su validez para el consumo FSM futuro de #3.
+
+### 6. Límites de evidencia y observación no bloqueante
+
+**El campo “Process exited with code0” del smoke no acredita el código del proceso Java:** run_smoke_v2.sh hace `wait "$PID" || true` y luego lee `$?`, por lo que registra el resultado de esa lista y puede ocultar SIGTERM143. Esta auditoría no repite esa afirmación como hecho observado. Lo acreditado de la parada ordenada son los logs de cierre de ambos componentes y que el primer proceso terminó antes de preparar fixture/arrancar el segundo. La imprecisión del campo del reporte no invalida los resultados HTTP/DB y el cierre real corroborados, ni revela un fallo funcional del catálogo; se registra como límite de instrumentación, no como motivo para reconstruir la aplicación. Si se reutiliza el harness, capturar el status original de wait antes de normalizarlo y actualizar su etiqueta, sin atribuir al Java un exit0 no observado.
+
+Los conteos HTTP se registran y se contrastaron manualmente contra respuestas y logs; el harness no convierte todos los conteos en assertions automáticas. No se afirma CI para ese script temporal. Los logs/reportes en /tmp pueden caducar; se conservaron en este addendum hash, PIDs, comandos, recuentos y tuples relevantes. El código/tests versionados son la evidencia reproducible persistente.
+
+No se ha migrado una base de producción desconocida ni hecho prueba de corte eléctrico. La garantía examinada es transaccional/lógica bajo SQLite WAL y una instancia por archivo, con backup previo y rechazo conservador de esquemas no reconocidos. synchronous=NORMAL no acredita supervivencia de todos los commits frente a pérdida física de energía; ese límite ya está documentado y no es un incumplimiento funcional nuevo. No se declara autenticación administrativa, escalado multiproceso ni latencia universal.
+
+### 7. Conservación y conclusión
+
+El auditor solo realizó lectura/revisión, comparación de archivos/hashes y escritura de este addendum; **no ejecutó builds/tests/probes ni abrió bases de usuario** en esta reauditoría. Se guardaron fingerprints iniciales de BotEngine.java, IntentFallback.java, ApiTest.java y AGENTS.md y se compararon al finalizar: iguales. Se conserva el contenido previo completo del informe. Único archivo del repositorio modificado/versionado por el auditor: docs/orchestration/issue-2-audit.md.
+
+**PASS de conformidad técnica de #2 sobre 09d12467b8917f474eb3fd6579afaf90aefc4769.** F1–F7 y C1–C4 quedan cerrados para el alcance funcional aprobado con los límites anteriores expresos. No se solicita más implementación para #2 desde esta auditoría. Orca conserva la decisión final de aceptación/cierre y la coordinación de la siguiente fase; no hubo push ni cierre de issue por Codex.
