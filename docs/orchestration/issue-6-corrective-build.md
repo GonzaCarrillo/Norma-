@@ -97,24 +97,31 @@ A pesar del bloqueo para capturar el indicador visual de ventana del SO, se veri
 
 ## 4. Evidencia de Compilación y Verificación Limpia (JDK 25)
 
-Siguiendo el protocolo oficial de `testing-and-qa`:
+Siguiendo el protocolo oficial de `testing-and-qa` (§9):
+- **Commit exportado y auditado:** `b165b2f6cedc75203604a8c7ee3726e3ebc0c97e`
+- **Ruta de exportación limpia:** `/home/gonzalocar/orca/workspaces/Norma-/reconcile-6-storefront/target/qa.WqjwSe`
 - **Entorno de compilación:**
   - JDK: Microsoft OpenJDK 25.0.4.1+1-LTS (`/home/gonzalocar/.jdks/ms-25.0.4.1`)
   - Maven: Apache Maven 3.8.7
   - Sistema Operativo: Linux 6.14.0-37-generic (amd64)
-- **Comando de verificación ejecutado:**
+- **Secuencia de comandos ejecutada en la exportación:**
   ```bash
   export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1
   export PATH="$JAVA_HOME/bin:$PATH"
-  mvn -B clean verify \
-    -DargLine="-Djava.io.tmpdir=$(pwd)/target/builder-runtime/tmp" \
-    -Dnorma.uploads="$(pwd)/target/builder-runtime/uploads" \
+  mvn -B clean
+  mkdir -p target/export-runtime/tmp target/export-runtime/uploads
+  mvn -B verify \
+    -DargLine="-Djava.io.tmpdir=$(pwd)/target/export-runtime/tmp" \
+    -Dnorma.uploads="$(pwd)/target/export-runtime/uploads" \
     -Dgroq.api.key=
   ```
-- **Resultado:** `BUILD SUCCESS` (Exit code: `0`).
+- **Resultado:** `BUILD SUCCESS` (Exit code: `0`, duración: `01:37 min`).
+- **Sumas de comprobación SHA-256:**
+  - Registro de verificación (`verify.log`): `5ba285ad1719c2bbbdcbac9a18499cb0fb4e653d2e9ab15d0e9334191a6d8a78`
+  - Archivo ejecutable empaquetado (`taller-1.0.0.jar`): `7ccbb252d70813bf84a7428d3fae4780866d6b30b19cde040b21822bc3114c18`
 - **Suites ejecutadas:** 16 suites Surefire, **192 tests ejecutados, 0 fallos, 0 errores, 0 omitidos**.
 
-### Desglose de Suites Surefire XML (`target/surefire-reports/`):
+### Desglose de Suites Surefire XML (`target/surefire-reports/` en exportación):
 | Archivo de Reporte | Tests | Fallos | Errores | Omitidos |
 |---|:---:|:---:|:---:|:---:|
 | `TEST-com.norma.taller.ApiAudioTest.xml` | 4 | 0 | 0 | 0 |
@@ -139,6 +146,6 @@ Siguiendo el protocolo oficial de `testing-and-qa`:
 
 ## 5. Estado de la Entrega y Próximos Pasos
 
-1. **Commit:** Se commitean de forma atómica y limpia los entregables autorizados para esta fase correctiva (`docs/orchestration/issue-6-corrective-build.md` y `docs/orchestration/issue-6-corrective-evidence/builder/`).
+1. **Commit y Trazabilidad:** La evidencia técnica de exportación limpia se ejecutó sobre el commit `b165b2f6cedc75203604a8c7ee3726e3ebc0c97e`. Esta actualización documental final incorpora los hashes y rutas resultantes de la ejecución de compilación, declarando explícitamente dicha diferencia documental conforme a `testing-and-qa`.
 2. **Handoff a Orca:** Se entrega el commit para que el Lead Software Engineer coordine la **Fase 3: Auditoría QA independiente por GitHub Copilot** y posteriormente la **Fase 4: Aprobación arquitectónica por Codex**.
 3. **No-operaciones garantizadas:** No se ha realizado merge a `main`, push remoto, cierre unilateral de issues ni activación de agentes no autorizados.
