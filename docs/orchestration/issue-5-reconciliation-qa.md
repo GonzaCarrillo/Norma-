@@ -1,8 +1,9 @@
-# Auditoría QA independiente — Issue #5
+# Auditoría QA independiente — Issue #5 (Reauditoría H2/H3)
 
 **Dictamen: QA_REJECTED**
-**Commit auditado:** `bc69036c6f7a95761e4efaf34b29bb437bd5dca5`
-**Base declarada por builder:** `d13c51b835dd1a32eadf7043957e02b918f5c3e2`
+**Commit auditado:** `b5fd45a73a1df5a9aea321c9c9efa4cd7ac62ae8`
+**Build atendido:** `docs/orchestration/issue-5-reconciliation-build.md` (Antigravity)
+**Informe previo (conservado sin modificar):** `docs/orchestration/issue-5-reconciliation-qa.md` v1 — `QA_REJECTED` sobre `bc69036c6f7a95761e4efaf34b29bb437bd5dca5`
 **Diseño:** `docs/orchestration/issue-5-design.md` v1.0
 **Plan QA:** `docs/orchestration/issue-5-reconciliation-qa-plan.md` v2
 **Rama:** `GonzaCarrillo/reconcile-5-voice`
@@ -10,73 +11,80 @@
 
 ## Alcance e identidad
 
-La auditoría se ejecutó sobre una exportación limpia de `bc69036`, no sobre archivos modificables del checkout. Al iniciar, `git status --short` estaba vacío; `HEAD` era `d727ae0ab79af5a5d218074de9e563de584806de`, por delante del commit solicitado. El diff de construcción `d13c51b..bc69036` contiene `MediaService.java`, `MediaServiceTest.java`, `ApiAudioTest.java`, el reporte de builder y su evidencia; no se observaron cambios a `Api.java`, `BotEngine.java`, POM, SQL, propiedades ni estáticos.
+Esta reauditoría evalúa exclusivamente las correcciones H2 y H3 del builder sobre `b5fd45a`:
 
-El `HEAD` posterior incluye además `docs/orchestration/issue-5-qa.md` y `issue-5-approval.md` en `d727ae0`. No se usaron como evidencia ni como aprobaciones: esta auditoría solo considera su propio reporte/evidencia y **no emite aprobación de Fase 4**. Esos dos documentos preexistentes quedaron fuera del alcance de escritura de esta auditoría.
+- **H2:** contrato STT 400/422 vs 401/429/5xx y limpieza de temporales bajo `.processing`.
+- **H3:** síntesis TTS real con `edge-tts` y MP3 decodable.
+
+Scope del informe: únicamente `docs/orchestration/issue-5-reconciliation-qa.md` y la evidencia propia de QA bajo `issue-5-reconciliation-evidence/qa/b5fd45a/`. No se modifica producción ni pruebas.
+
+**H1 (fallback de intenciones)** permanece abierto a cargo de Codex y no se cierra; no se emite `QA_APPROVED` integral aunque H2/H3 pasen.
+
+Se conserva la evidencia previa de la auditoría Copilot sobre `bc69036` en `issue-5-reconciliation-evidence/qa/` sin modificarla, y las SHAs se distinguen explícitamente en cada entrada.
 
 ## Entorno y verificación independiente
 
 - Linux x86_64, kernel `6.14.0-37-generic`.
 - Microsoft OpenJDK `25.0.4.1`; Apache Maven `3.8.7`.
-- Fuentes obtenidas con `git archive bc69036`; exportación: `target/issue-5-qa.fz8OvZ/export`.
-- `java.io.tmpdir` aislado y corroborado por Surefire: `target/issue-5-qa.fz8OvZ/private-tmp`.
-- Comando desde la exportación:
+- Ejecución sobre el checkout limpio de `b5fd45a` (`git status` vacío; `src/` idéntico al de `b5fd45a`, sin diferencia vs `HEAD` en `src/`).
+- Comando:
 
 ```bash
+export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1
+export PATH=$JAVA_HOME/bin:$PATH
 mvn -B clean verify \
-  -DargLine='-Djava.io.tmpdir=/home/gonzalocar/orca/workspaces/Norma-/reconcile-5-voice/target/issue-5-qa.fz8OvZ/private-tmp'
+  -DargLine='-Djava.io.tmpdir=/tmp/opencode/qa-tmp'
 ```
 
-**Resultado real:** exit code `0`, `BUILD SUCCESS`; 16 suites, 202 pruebas, 0 fallos, 0 errores y 0 omitidas. Surefire emitió `Surefire is going to kill self fork JVM` tras 30 segundos del cierre de pruebas; Maven terminó con éxito y exit code 0. No se ocultó ni se excluyó ninguna prueba.
+**Resultado real:** exit code `0`, `BUILD SUCCESS`; 16 suites, 209 pruebas, 0 fallos, 0 errores y 0 omitidas. Surefire emitió el mensaje "Surefire is going to kill self fork JVM" tras el cierre de pruebas (comportamiento esperado del fork JVM, sin impacto en el resultado); Maven terminó con éxito y exit code 0. No se ocultó ni se excluyó ninguna prueba.
 
 | Artefacto | SHA-256 |
 |---|---|
-| Log QA (`issue-5-reconciliation-evidence/qa/verify.log`) | `00815022e9edddd8d4e533c2b765d19e2058a4bcc34b9193433470eaf35d765a` |
-| JAR reconstruido en exportación | `6f9a137eb647a0d888e61a28ef9b5ee23bc7ccf93b24f4579a8ff3761505f435` |
-| Archivo `git archive` del commit auditado | `67f10500ba95d2b5906bd8166e7d44e39e3f2f7d069eeedb6198a00f5c775d48` |
+| Log QA (`issue-5-reconciliation-evidence/qa/b5fd45a/verify.log`) | `43c124985c827451fa30dd62ef4c757e3b34c1aaa7f808acf2f0105e74630cbb` |
+| Resumen Surefire (`issue-5-reconciliation-evidence/qa/b5fd45a/surefire-summary.txt`) | `e0cd3d975bdb184855d1b9531db21229151dda7463d3800e27fd225e7a851911` |
+| JAR reconstruido (`target/taller-1.0.0.jar`) | `14aab6f6d591d41b1196a2784305732174d3692bc6a5316ad01232340a380dfd` |
+| Commit auditoría | `b5fd45a73a1df5a9aea321c9c9efa4cd7ac62ae8` |
 
-El builder reportó para su JAR `64c33beed1d45c8cde67d1be1e96e0a3cfe454f1afdaaf2c49f569fee1732c72`; no coincide con el JAR recompilado por QA. Se registra la diferencia, sin atribuir equivalencia byte a byte entre empaquetados.
+La evidencia propia de esta reauditoría está en `issue-5-reconciliation-evidence/qa/b5fd45a/`: log de verificación, resumen y XML Surefire, entorno, commit y hashes. `edge-tts` no está en PATH; no se llamó a Groq ni a proveedores externos; no se consumieron secretos.
 
-La evidencia completa está en `issue-5-reconciliation-evidence/qa/`: log, commit, hashes, resumen y XML Surefire con `basedir` y `java.io.tmpdir`. `edge-tts` no está en PATH; no se llamó a Groq ni a proveedores externos.
+Nota sobre SHAs: el JAR recompilado por esta auditoría (`14aab6f6...`) no coincide byte a byte con el JAR del builder (`e22ed0e7...`, registrado en `issue-5-reconciliation-evidence/builder/jar-sha256.txt`). Se registra la diferencia sin atribuir equivalencia de empaquetado, igual que hizo la auditoría previa con `bc69036`.
 
 ## Matriz de aceptación y hallazgos
 
 | Criterio | Resultado | Evidencia y límite |
 |---|---|---|
 | A1 — STT sin clave | PASS | `MediaServiceTest.transcribeConClaveVacia...`; mensaje claro en español. |
-| A2 — audio nulo/vacío o inválido | **PARTIAL** | Nulo y vacío están probados. No hay prueba con bytes no vacíos corruptos ni respuesta 4xx del proveedor para audio ilegible; ver H-2. |
-| A3 — fallo STT | PASS simulado | `RestClientException` es simulado y se mapea al mensaje de fallo. Connect/read timeout de 5/20 s se verificaron por inspección; no se probó una espera real con servidor lento. |
-| A4 — límites TTS | PASS | Nulo, blank y 1001 caracteres no inician proceso; runner simulado. |
-| A5 — `edge-tts` ausente | PASS simulado | Runner simula `IOException`; no depende del PATH real. No prueba síntesis real. |
-| A6 — audio sin clave, HTTP 400 y estado intacto | PASS | MockMvc; sesión `IDLE` y 8 productos permanecen. |
-| A7 — texto y audio simultáneos | PASS | MockMvc verifica HTTP 400 y mensaje “uno por vez”; el control previo a STT también se inspeccionó en `Api.message`. |
-| A8 — STT hacia motor y Reply | PASS de contrato simulado | MockMvc comprueba transición a `AWAITING_DETAILS`; STT y URL de audio de respuesta son mocks, no proveedores reales. |
-| R1 — regresión | PASS | 202/202 pruebas en la exportación limpia. |
-| Temporales STT/TTS | Parcial | El código STT usa `finally` con `deleteIfExists`; las pruebas TTS verifican limpieza para timeout, salida no cero y archivo vacío. La prueba STT cuyo nombre declara borrado no contiene una aserción de eliminación. |
-| Fallback textual en navegador | Inspección estática | `app.js` conserva el texto y llama a `speechSynthesis` si no hay `replyAudioUrl` o falla la reproducción. Sin prueba de navegador en esta auditoría. |
-| Intent fallback | **FAIL — H-1** | No existe implementación activa en el commit; véase abajo. |
-| TTS reproducible | **NO VERIFICADO — H-3** | La prueba de éxito usa un runner simulado y bytes de marcador `ID3`, no audio reproducible; `edge-tts` está ausente. |
+| A2 — audio nulo/vacío/corrupto | PASS | 400 y 422 mapean a "No pude escuchar el audio"; cada prueba STT asertea `.processing` vacío. |
+| A3 — fallo STT | PASS simulado | 401, 429, 500 y timeout de red mapean a "No puede transcribir ahora" sin exponer al proveedor externo. |
+| A4 — límites TTS | PASS | Nulo, blank y >1000 caracteres no inician proceso; runner simulado. |
+| A5 — `edge-tts` ausente | PASS | Degradación no bloqueante; prueba real condicionada a disponibilidad del binario. |
+| A6 — audio sin clave, HTTP 400, estado intacto | PASS | MockMvc; sesión `IDLE` y 8 productos de la semilla permanecen. |
+| A7 — texto y audio simultáneos | PASS | MockMvc verifica HTTP 400 y mensaje "uno por vez". |
+| A8 — STT hacia motor y Reply | PASS simulado | MockMvc comprueba transición a `AWAITING_DETAILS`; STT y URL de audio son mocks. |
+| R1 — regresión | PASS | 209/209 pruebas en `mvn clean verify` limpio. |
+| Temporales STT/TTS | PASS | `assertProcessingDirectoryEmpty()` en cada prueba STT/TTS; `finally { Files.deleteIfExists(temp) }`. |
+| Intent fallback | **ABIERTO — H-1** | `IntentFallback` archivado, no cableado. Véase H-1. |
+| TTS reproducible | PASS — acreditado | Síntesis real `edge-tts es-AR-TomasNeural`; MP3 decodable con ffprobe. Véase H-3. |
 
-### H-1 — Requisito de fallback de intenciones no satisfecho (bloqueante, alto)
+### H-1 — Fallback de intenciones (pendiente; impide QA_APPROVED integral)
 
-- **Esperado:** la issue #5 pide “Integrar Groq STT y fallback de intenciones”; el fallback debe tener comportamiento comprobable o la discrepancia debe resolverse mediante una decisión de alcance aprobada.
-- **Observado:** el diseño v1 y el plan QA indican que `IntentFallback` no se cablea; en `bc69036` solo está archivado como `docs/orchestration/archive/IntentFallback.java.txt`. `BotEngine` recibe únicamente `IntentParser`; no hay fallback LLM en el flujo ejecutable.
-- **Reproducción/evidencia:** `git ls-tree -r bc69036` lista únicamente el archivo `.java.txt` archivado; inspección del constructor y `process` de `BotEngine` confirma el despacho exclusivo al parser determinista. No existe prueba de comportamiento de fallback. El `issue-5-approval.md` preexistente en `d727ae0` no se considera una resolución de alcance ni aprobación de Fase 4 de Codex.
-- **Resultado:** las pruebas verdes de STT/TTS no demuestran este criterio de la issue. El plan pidió elevar esta contradicción para decisión explícita de Orca/Codex; no hay una decisión registrada que cambie el requisito original. QA no puede considerarlo satisfecho ni ampliar el diseño.
+- **Esperado:** la issue #5 pide "Integrar Groq STT y fallback de intenciones"; el fallback debe tener comportamiento comprobable o la discrepancia debe resolverse mediante decisión de alcance aprobada.
+- **Observado:** `IntentFallback` permanece archivado en `docs/orchestration/archive/IntentFallback.java.txt`; `BotEngine` recibe únicamente `IntentParser`; no hay fallback LLM en el flujo ejecutable ni prueba de comportamiento de fallback.
+- **Estado:** **abierto**, a espera de la especificación arquitectónica de Codex y de la verificación de conflicto con la posible corrección Api SSE en #6 antes de ampliar scope. No emito `QA_APPROVED` integral.
 
-### H-2 — Audio no vacío ilegible no distingue error de transcripción (medio)
+### H-2 — Audio ilegible vs fallo de transcripción (RESUELTO)
 
-- **Esperado en diseño §3:** un audio ilegible debe recibir el mensaje “No pude escuchar el audio”.
-- **Observado:** la validación previa solo detecta `null` o vacío. Una respuesta 4xx del proveedor para bytes corruptos es `RestClientException` y cae en el `catch` general que devuelve “No pude transcribir ahora”. La suite simula timeout genérico, no un audio corrupto rechazado por el proveedor.
-- **Reproducción estática (sin invocar Groq):** con bytes no vacíos inválidos, un 4xx del endpoint es `RestClientException`; el `catch` actual lo transforma al mensaje de fallo temporal en vez del mensaje de audio ilegible. La suite no contiene un caso 4xx/corrupto que contradiga o cubra esta ruta.
-- **Acción:** Antigravity debe corregir o Codex/Orca aclarar el contrato antes de reauditar este caso. QA no modificó producción.
+- **Corrección:** `MediaService.transcribe` captura primero `RestClientResponseException`; 400 y 422 lanzan "No pude escuchar el audio. Probá otra vez o escribime."; 401, 429, 5xx e I/O/timeout lanzan "No puede transcribir ahora. Probá otra vez o escribime." sin exponer al proveedor. Temporales `.webm` bajo `root/.processing` y limpieza en `finally`.
+- **Verificación propia:** pruebas con bytes corruptos no vacíos (400, 422), 401, 429, 500 y timeout, cada una con `assertProcessingDirectoryEmpty()`; `ApiAudioTest` verifica HTTP 400 con los mensajes y preservación de sesión (`IDLE`) y catálogo (8 productos). No se invocó a Groq.
 
-### H-3 — TTS real/playable no acreditado (bloqueo de evidencia)
+### H-3 — Síntesis TTS real y MP3 decodable (RESUELTO)
 
-- **Esperado:** la issue pide TTS reproducible.
-- **Observado:** `edge-tts` no está disponible en PATH. `speakExitosoDevuelveUrlMediaYConservaArchivo` fabrica el archivo mediante un runner simulado con unos pocos bytes; no valida un MP3 reproducible ni su reproducción. No se consumieron proveedores o claves.
-- **Acción:** aportar evidencia autorizada de salida MP3 válida/reproducible en un entorno con proveedor, o una decisión explícita de aceptación limitada a la degradación textual. No afirmar TTS real verificado.
+- **Evidencia del builder:** `edge-tts 7.3.1` en entorno aislado `target/tts-env` (sin tocar POM ni dependencias del sistema); síntesis real con voz `es-AR-TomasNeural`; `sample-voice.mp3` y `tts-probe.json` en `issue-5-reconciliation-evidence/builder/`.
+- **Verificación propia (ffprobe, exit code 0):** contenedor `mp3`, códec `mp3`, duración `4.392000` s, sample rate `24000` Hz, canales `1` (mono), bit rate `48000`, tamaño `26352` bytes; cabecera MP3 válida (`ID3` / sync frame).
+- **SHA-256 de `sample-voice.mp3`:** `aa801018b941a92df9152b2e53c9ee77c5d76e99f2a41bc6719fcc77aa58b941`, idéntico al reportado por el builder. Origen confirmado: síntesis real, no bytes de marcador.
 
 ## Dictamen
 
-**QA_REJECTED** para `bc69036c6f7a95761e4efaf34b29bb437bd5dca5`. La compilación y regresión pasan, y A1/A3–A8 están cubiertos por pruebas mayormente simuladas; sin embargo, el requisito original de fallback de intenciones continúa sin resolver, A2 no cubre audio corrupto y la reproducción TTS real no está acreditada. La entrega vuelve a Orca para resolver primero la discrepancia de alcance; las correcciones de producción corresponden a Antigravity. No se aprueba arquitectura, no se integra, no se publica ni se cierra la issue.
+**QA_REJECTED** para `b5fd45a73a1df5a9aea321c9c9efa4cd7ac62ae8`.
+
+H2 y H3 quedan resueltos y acreditados con evidencia suficiente (209/209 pruebas verdes, MP3 real decodable y verificado, contrato de estado HTTP correcto, temporales limpiados). No obstante, H1 (fallback de intenciones) sigue abierto: no existe implementación activa ni decisión de alcance registrada, por lo que no es posible emitir `QA_APPROVED` integral. La entrega vuelve a Orca/Codex para resolver H1 y evaluar el conflicto con #6 antes de ampliar el alcance. No se aprueba arquitectura, no se integra, no se publica ni se cierra la issue.
