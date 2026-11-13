@@ -6,15 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Pruebas unitarias deterministas para el aislamiento de fallos en Api.publish (Codex v2.1).
+ * Pruebas unitarias deterministas para el aislamiento de fallos y concurrencia SSE (Codex v2.2).
  */
 public class ApiPublishTest {
 
@@ -122,21 +121,153 @@ public class ApiPublishTest {
     }
 
     @Test
-    @DisplayName("Control positivo: demostración del fallo del baseline si complete() no estuviera protegido")
-    void testPositiveControlBaselineBehavior() {
-        // Demuestra que si el bloque catch invoca e.complete() sin try-catch,
-        // la excepción de Tomcat interrumpe la ejecución del hilo llamador
-        SseEmitter unshieldedEmitter = mock(SseEmitter.class);
-        doThrow(new IllegalStateException("A non-container thread attempted to use AsyncContext"))
-                .when(unshieldedEmitter).complete();
+    @DisplayName("P2 — Regresión concurrente determinista: cleanup del último emisor vs registro nuevo nunca orfana la nueva suscripción")
+    void testConcurrentCleanupVsNewRegistrationDoesNotOrphanSubscription() throws Exception {
+        int rounds = 50;
+        ExecutorService executor = Executors.newFixedThreadPool(4);
 
-        assertThrows(IllegalStateException.class, () -> {
-            try {
-                throw new IOException("Broken pipe");
-            } catch (Exception ex) {
-                // Comportamiento anterior del baseline en Api.java:42
-                unshieldedEmitter.complete();
+        try {
+            for (int i = 0; i < rounds; i++) {
+                String sessionId = "sess_race_p2_" + i;
+
+                // Emisor previo ya registrado
+                SseEmitter oldEmitter = api.stream(sessionId);
+                assertNotNull(api.streams.get(sessionId));
+                assertTrue(api.streams.get(sessionId).contains(oldEmitter));
+
+                CountDownLatch startLatch = new CountDownLatch(1);
+                CountDownLatch doneLatch = new CountDownLatch(2);
+                Future<?>[] futures = new Future<?>[2];
+                ConcurrentLinkedQueue<SseEmitter> newEmitterHolder = new ConcurrentLinkedQueue<>();
+                ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
+
+                // Hilo 1: cleanup del emisor viejo (ejecuta removeEmitter como en onCompletion/onError)
+                futures[0] = executor.submit(() -> {
+                    try {
+                        startLatch.await();
+                        api.removeEmitter(sessionId, oldEmitter);
+                    } catch (Throwable t) {
+                        errors.add(t);
+                    } finally {
+                        doneLatch.countDown();
+                    }
+                });
+
+                // Hilo 2: registro concurrente de nuevo emisor
+                futures[1] = executor.submit(() -> {
+                    try {
+                        startLatch.await();
+                        SseEmitter newEmitter = api.stream(sessionId);
+                        newEmitterHolder.add(newEmitter);
+                    } catch (Throwable t) {
+                        errors.add(t);
+                    } finally {
+                        doneLatch.countDown();
+                    }
+                });
+
+                // Disparo sincronizado
+                startLatch.countDown();
+                assertTrue(doneLatch.await(5, TimeUnit.SECONDS), "Los hilos deben terminar en menos de 5s en ronda " + i);
+
+                for (Future<?> f : futures) {
+                    f.get(1, TimeUnit.SECONDS);
+                }
+
+                assertTrue(errors.isEmpty(), "No deben ocurrir errores en ronda " + i + ": " + errors);
+                assertEquals(1, newEmitterHolder.size(), "Debe haberse registrado exactamente 1 nuevo emisor");
+                SseEmitter newEmitter = newEmitterHolder.peek();
+
+                // Verificación fundamental v2.2:
+                // La nueva suscripción DEBE seguir alcanzable en streams
+                var currentList = api.streams.get(sessionId);
+                assertNotNull(currentList, "La lista en streams no debe haber sido eliminada para la ronda " + i);
+                assertTrue(currentList.contains(newEmitter), "El nuevo emisor debe estar presente en streams para la ronda " + i);
+                assertFalse(currentList.contains(oldEmitter), "El viejo emisor debe haber sido retirado");
+
+                // Y publish debe ejecutarse sin errores alcanzando la nueva suscripción
+                assertDoesNotThrow(() -> api.publish(sessionId), "Publish no debe fallar tras cleanup/registro concurrente");
             }
-        }, "El comportamiento anterior sin try-catch arrojaba la excepción asíncrona hacia el llamador");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("Límite de 5 bajo registros concurrentes: exactamente 5 son aceptados y el resto rechazados con límite respetado")
+    void testConcurrentRegistrationLimitFive() throws Exception {
+        String sessionId = "sess_limit_concurrent";
+        int totalAttempts = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(totalAttempts);
+
+        try {
+            CountDownLatch startLatch = new CountDownLatch(1);
+            CountDownLatch doneLatch = new CountDownLatch(totalAttempts);
+            AtomicInteger successCount = new AtomicInteger(0);
+            AtomicInteger limitExceededCount = new AtomicInteger(0);
+            ConcurrentLinkedQueue<Throwable> unexpectedErrors = new ConcurrentLinkedQueue<>();
+
+            for (int i = 0; i < totalAttempts; i++) {
+                executor.submit(() -> {
+                    try {
+                        startLatch.await();
+                        api.stream(sessionId);
+                        successCount.incrementAndGet();
+                    } catch (IllegalArgumentException e) {
+                        if ("Ya hay varias ventanas abiertas para esta sesión.".equals(e.getMessage())) {
+                            limitExceededCount.incrementAndGet();
+                        } else {
+                            unexpectedErrors.add(e);
+                        }
+                    } catch (Throwable t) {
+                        unexpectedErrors.add(t);
+                    } finally {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            // Iniciar todos los hilos simultáneamente
+            startLatch.countDown();
+            assertTrue(doneLatch.await(5, TimeUnit.SECONDS), "Los 10 intentos deben terminar en menos de 5 segundos");
+
+            assertTrue(unexpectedErrors.isEmpty(), "No debe haber errores inesperados: " + unexpectedErrors);
+            assertEquals(5, successCount.get(), "Exactamente 5 registros deben tener éxito");
+            assertEquals(5, limitExceededCount.get(), "Exactamente 5 intentos deben ser rechazados por exceso de ventanas");
+
+            var list = api.streams.get(sessionId);
+            assertNotNull(list);
+            assertEquals(5, list.size(), "La lista persistida en streams debe tener exactamente 5 emisores");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("Retiro idempotente de emitter: múltiples invocaciones sobre el mismo emisor no alteran la lista")
+    void testRemoveEmitterIdempotence() {
+        String sessionId = "sess_idem";
+        SseEmitter e1 = api.stream(sessionId);
+        SseEmitter e2 = api.stream(sessionId);
+
+        assertEquals(2, api.streams.get(sessionId).size());
+
+        // Primer retiro
+        api.removeEmitter(sessionId, e1);
+        assertEquals(1, api.streams.get(sessionId).size());
+        assertTrue(api.streams.get(sessionId).contains(e2));
+
+        // Segundo retiro del mismo emisor: debe ser no-op idempotente
+        assertDoesNotThrow(() -> api.removeEmitter(sessionId, e1));
+        assertEquals(1, api.streams.get(sessionId).size());
+        assertTrue(api.streams.get(sessionId).contains(e2));
+
+        // Retiro del segundo emisor: la clave se elimina
+        api.removeEmitter(sessionId, e2);
+        assertNull(api.streams.get(sessionId));
+
+        // Retiro posterior sobre clave inexistente: no-op seguro
+        assertDoesNotThrow(() -> api.removeEmitter(sessionId, e2));
+        assertNull(api.streams.get(sessionId));
     }
 }

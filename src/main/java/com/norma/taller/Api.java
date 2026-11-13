@@ -32,14 +32,25 @@ public class Api {
  }
  @GetMapping(value="/api/catalog/stream",produces=MediaType.TEXT_EVENT_STREAM_VALUE)
  public SseEmitter stream(@RequestParam String sessionId){
- catalog.ensure(sessionId);var emitter=new SseEmitter(300000L);var list=streams.computeIfAbsent(sessionId,k->new CopyOnWriteArrayList<>());
- if(list.size()>=5)throw new IllegalArgumentException("Ya hay varias ventanas abiertas para esta sesión.");
- list.add(emitter);Runnable cleanup=()->{list.remove(emitter);if(list.isEmpty())streams.remove(sessionId,list);};
+ catalog.ensure(sessionId);var emitter=new SseEmitter(300000L);
+ streams.compute(sessionId,(k,currentList)->{
+  var list=currentList!=null?currentList:new CopyOnWriteArrayList<SseEmitter>();
+  if(list.size()>=5)throw new IllegalArgumentException("Ya hay varias ventanas abiertas para esta sesión.");
+  list.add(emitter);
+  return list;
+ });
+ Runnable cleanup=()->removeEmitter(sessionId,emitter);
  emitter.onCompletion(cleanup);
  emitter.onTimeout(()->{cleanup.run();try{emitter.complete();}catch(Exception ignored){}});
  emitter.onError(e->cleanup.run());
  try{emitter.send(SseEmitter.event().name("catalog-update").data("conectado"));}catch(IOException e){cleanup.run();}
  return emitter;
+ }
+ void removeEmitter(String sessionId,SseEmitter emitter){
+  streams.computeIfPresent(sessionId,(k,list)->{
+   list.remove(emitter);
+   return list.isEmpty()?null:list;
+  });
  }
  void publish(String id){
   var list=streams.get(id);
@@ -48,8 +59,7 @@ public class Api {
    try{
     e.send(SseEmitter.event().name("catalog-update").data("actualizado"));
    }catch(Exception ex){
-    list.remove(e);
-    if(list.isEmpty())streams.remove(id,list);
+    removeEmitter(id,e);
     try{e.complete();}catch(Exception ignored){}
    }
   }
