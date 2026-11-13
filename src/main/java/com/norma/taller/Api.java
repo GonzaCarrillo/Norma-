@@ -18,8 +18,14 @@ public class Api {
  @PostMapping("/api/reset") public Map<String,String> reset(@RequestParam String sessionId){catalog.reset(sessionId);publish(sessionId);return Map.of("message","El catálogo original ya está restaurado.");}
  @PostMapping(value="/api/bot/message",consumes="multipart/form-data")
  public BotEngine.Reply message(@RequestParam String sessionId,@RequestParam(required=false)String text,@RequestParam(required=false) MultipartFile image,@RequestParam(required=false)MultipartFile audio)throws IOException{
- Catalog.valid(sessionId);if(text!=null&&text.length()>1000)throw new IllegalArgumentException("El mensaje es demasiado largo.");
- if(audio!=null&&!audio.isEmpty())text=media.transcribe(audio);
+ Catalog.valid(sessionId);
+ boolean hasText = text != null && !text.trim().isEmpty();
+ boolean hasAudio = audio != null && !audio.isEmpty();
+ if (hasText && hasAudio) {
+  throw new IllegalArgumentException("Mandame el texto o el audio con los detalles, uno por vez.");
+ }
+ if(text!=null&&text.length()>1000)throw new IllegalArgumentException("El mensaje es demasiado largo.");
+ if(hasAudio)text=media.transcribe(audio);
  String photo=image==null||image.isEmpty()?null:media.image(image);
  var result=bot.process(sessionId,text,photo);publish(sessionId);
  return new BotEngine.Reply(result.replyText(),media.speak(result.replyText()),result.state());
@@ -38,7 +44,11 @@ public class Api {
 @Configuration
 class MediaConfig implements WebMvcConfigurer{
  private final MediaService media;MediaConfig(MediaService m){media=m;}
- public void addResourceHandlers(ResourceHandlerRegistry registry){registry.addResourceHandler("/media/**").addResourceLocations(media.root.toUri().toString());}
+ public void addResourceHandlers(ResourceHandlerRegistry registry){
+  if(media!=null&&media.root!=null){
+   registry.addResourceHandler("/media/**").addResourceLocations(media.root.toUri().toString());
+  }
+ }
 }
 @RestControllerAdvice
 class ApiErrors{
