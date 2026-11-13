@@ -39,7 +39,7 @@ Este archivo es la fuente de verdad para la coordinación técnica de este repos
 
 - **Agente:** GitHub Copilot. **Rol oficial:** QA & Test Auditor según `.agents/skills/qa-auditor/SKILL.md`.
 - Ejecuta la **Fase 3**: build, suite completa de pruebas, regresión y validación de casos borde sobre el commit entregado por Antigravity.
-- Emite un dictamen **PASS / FAIL** con commit auditado, entorno, comandos, resultados reales, evidencia y límites. Cada defecto debe incluir severidad, reproducción, resultado esperado y resultado observado.
+- Emite un dictamen **QA_APPROVED / QA_REJECTED** con commit auditado, entorno, comandos, resultados reales, evidencia y límites. Cada defecto debe incluir severidad, reproducción, resultado esperado y resultado observado.
 - No modifica código de producción para corregir una entrega, no cambia arquitectura, contratos o esquemas, y no desactiva pruebas ni oculta fallos para obtener resultados verdes.
 - Reporta los hallazgos y bloqueos a Orca. Las correcciones de producción vuelven a Antigravity; las dudas de diseño se derivan a Codex a través de Orca.
 - No aprueba arquitectura, integra cambios, publica, despliega ni cierra issues. Orca conserva la aceptación final.
@@ -53,12 +53,14 @@ Los roles corresponden a la función asignada en cada tarea, independientemente 
 
 ## 2. Flujo obligatorio
 
-1. **Diseño:** Orca envía a Codex el requerimiento, el contexto del repositorio, las restricciones y los criterios funcionales. Codex entrega arquitectura, contratos de datos y plan técnico de implementación; explicita supuestos, casos borde y riesgos.
-2. **Validación:** Orca revisa la propuesta. Si hay ambigüedades, incompatibilidades o cuellos de botella, solicita ajustes a Codex. Registra la versión aprobada y sus criterios de aceptación antes de avanzar.
-3. **Construcción:** Orca divide el diseño aprobado en tareas atómicas y secuenciales para Antigravity. Cada tarea incluye el contexto exacto, las dependencias, las reglas y los contratos que debe respetar. Antigravity implementa y prueba sin alterar esas decisiones.
-4. **Auditoría técnica:** Orca comprueba la entrega y solicita a Codex una revisión de conformidad contra el diseño aprobado. Los hallazgos vuelven a Antigravity; si requieren cambiar el diseño, regresan a Codex y pasan nuevamente por validación.
-5. **QA independiente:** Una vez conforme la entrega técnica, Orca asigna a GitHub Copilot la verificación funcional, de pruebas y regresiones sobre el commit entregado. Copilot emite PASS / FAIL con evidencia. Ante FAIL, Orca devuelve los defectos a Antigravity y solicita la reverificación de las áreas afectadas; si cambia el diseño o código relevante, también actualiza la revisión de Codex.
-6. **Aceptación y cierre:** Orca solo cierra la tarea cuando los criterios estén satisfechos, la conformidad técnica de Codex y el QA de Copilot sean PASS y correspondan a la versión final entregada. Un cambio posterior requiere revisar su impacto y revalidar lo afectado; no se reutiliza un PASS de otro commit sin justificar la correspondencia.
+El orden oficial es Fase 1 Codex → Fase 2 Antigravity → Fase 3 GitHub Copilot → Fase 4 Codex. Orca valida el diseño antes de construir y conserva la aceptación e integración final.
+
+1. **Fase 1 — Diseño técnico y criterios QA (Codex):** Recibe el contexto de Orca y entrega contratos, arquitectura, plan, criterios verificables, supuestos y riesgos. Orca valida y registra la versión aprobada antes de construir; las ambigüedades vuelven a Codex.
+2. **Fase 2 — Implementación y tests (Antigravity):** Implementa las tareas atómicas del diseño aprobado, con sus dependencias y contratos, y entrega commit y evidencia de pruebas.
+3. **Fase 3 — Auditoría QA y ejecución de suite (GitHub Copilot):** Ejecuta build, suite y regresiones contra el commit entregado, según `.agents/skills/qa-auditor/SKILL.md`. Emite QA_APPROVED / QA_REJECTED con evidencia. Los defectos vuelven a Antigravity; las dudas de diseño pasan a Codex mediante Orca. Una entrega corregida vuelve a QA antes de la aprobación final.
+4. **Fase 4 — Aprobación arquitectónica final (Codex):** Solo después de QA_APPROVED, contrasta diff y evidencia con el diseño aprobado y emite PASS / FAIL. Si requiere cambios, vuelven a Antigravity y pasan nuevamente por QA y aprobación final.
+
+**Aceptación y cierre (Orca):** Solo con criterios satisfechos, QA_APPROVED de Copilot y PASS final de Codex sobre la misma entrega. Un cambio posterior requiere revisar su impacto y revalidar lo afectado; no se reutiliza una aprobación de otro commit sin justificar la correspondencia.
 
 No se omiten fases por tratarse de una corrección, una refactorización o una tarea de infraestructura; la profundidad de cada entrega se adapta al tamaño del cambio. No se inicia una tarea dependiente mientras su predecesora siga sin aprobar.
 

@@ -1,0 +1,30 @@
+// Archivo histórico excluido de QA: cobertura duplicada y uploads compartidos target/test-uploads.
+package com.norma.taller;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockMultipartFile;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.assertj.core.api.Assertions.*;
+@SpringBootTest(properties={"spring.datasource.url=jdbc:sqlite::memory:","norma.uploads=target/test-uploads"})
+@AutoConfigureMockMvc
+class ApiTest {
+ @Autowired MockMvc mvc;@Autowired MediaService media;
+ @Test void catalogAndValidation()throws Exception{
+ mvc.perform(get("/api/products").param("sessionId","api-test-session")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(8));
+ mvc.perform(get("/api/products").param("sessionId","DEFAULT")).andExpect(status().isBadRequest());
+ mvc.perform(get("/api/ping")).andExpect(content().string("PONG"));
+ mvc.perform(multipart("/api/bot/message").param("sessionId","api-test-session").param("text","Ya vendí la pieza 1")).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("AWAITING_CONFIRMATION"));
+ }
+ @Test void imageOptimization()throws Exception{
+ var bytes=getClass().getResourceAsStream("/static/assets/pieza-1.webp").readAllBytes();
+ String url=media.image(new MockMultipartFile("image","foto.webp","image/webp",bytes));
+ var path=media.root.resolve(url.substring("/media/".length()));
+ assertThat(java.nio.file.Files.size(path)).isLessThan(80000);
+ var im=javax.imageio.ImageIO.read(path.toFile());assertThat(im.getWidth()*3).isEqualTo(im.getHeight()*4);
+ assertThatThrownBy(()->media.image(new MockMultipartFile("image","bad.png","image/png","bad".getBytes()))).isInstanceOf(IllegalArgumentException.class);
+ }
+}
