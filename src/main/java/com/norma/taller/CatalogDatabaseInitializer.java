@@ -589,41 +589,45 @@ public class CatalogDatabaseInitializer {
         }
 
         // Probes funcionales aislados con control positivo y control de causas esperadas
+        String testSessId = "chk_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         try (Statement st = conn.createStatement()) {
             st.execute("SAVEPOINT v2_check_validation_sp");
             try {
-                // Control positivo 1: Crear una sesion padre valida
-                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_1', 'IDLE', 9)");
+                // Control positivo 1: Crear una sesion padre valida con ID aleatorio unico
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('" + testSessId + "', 'IDLE', 9)");
 
                 // Control positivo 2: Insertar un producto valido sobre la sesion padre valida
-                st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 100, 'Pieza Valida', 15000, '/assets/valida.webp', 0)");
+                st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 100, 'Pieza Valida', 15000, '/assets/valida.webp', 0)");
 
                 // Probe 1. sessions: CHECK(id='DEFAULT' OR (length(id) BETWEEN 8 AND 80 AND id NOT GLOB '*[^a-zA-Z0-9_-]*'))
                 assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('short', 'IDLE', 9)", "sessions.id length");
                 assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('bad*char*session', 'IDLE', 9)", "sessions.id characters");
 
                 // Probe 2. sessions: CHECK(state IN ('IDLE','AWAITING_DETAILS','AWAITING_CONFIRMATION'))
-                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_2', 'INVALID_STATE', 9)", "sessions.state");
+                String testSessIdState = "chk_st_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('" + testSessIdState + "', 'INVALID_STATE', 9)", "sessions.state");
 
                 // Probe 3. sessions: CHECK(typeof(next_number)='integer' AND next_number BETWEEN 9 AND 2147483647)
-                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_3', 'IDLE', 0)", "sessions.next_number min");
-                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('valid_sess_check_4', 'IDLE', 8)", "sessions.next_number min 8");
+                String testSessIdNn1 = "chk_n1_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+                String testSessIdNn2 = "chk_n2_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('" + testSessIdNn1 + "', 'IDLE', 0)", "sessions.next_number min");
+                assertCheckConstraintFails(st, "INSERT INTO sessions(id, state, next_number) VALUES('" + testSessIdNn2 + "', 'IDLE', 8)", "sessions.next_number min 8");
 
                 // Probe 4. products: CHECK(typeof(piece_number)='integer' AND piece_number BETWEEN 1 AND 2147483646)
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 0, 'T', 100, '/img', 0)", "products.piece_number zero");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 0, 'T', 100, '/img', 0)", "products.piece_number zero");
 
                 // Probe 5. products: CHECK(length(trim(title))>0)
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 101, '   ', 100, '/img', 0)", "products.title empty");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 101, '   ', 100, '/img', 0)", "products.title empty");
 
                 // Probe 6. products: CHECK(typeof(price)='integer' AND price BETWEEN 1 AND 2147483647)
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 102, 'T', -1, '/img', 0)", "products.price negative");
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 103, 'T', 0, '/img', 0)", "products.price zero");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 102, 'T', -1, '/img', 0)", "products.price negative");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 103, 'T', 0, '/img', 0)", "products.price zero");
 
                 // Probe 7. products: CHECK(length(trim(image_url))>0)
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 104, 'T', 100, '   ', 0)", "products.image_url empty");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 104, 'T', 100, '   ', 0)", "products.image_url empty");
 
                 // Probe 8. products: CHECK(typeof(sold)='integer' AND sold IN (0,1))
-                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('valid_sess_check_1', 105, 'T', 100, '/img', 2)", "products.sold out of range");
+                assertCheckConstraintFails(st, "INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + testSessId + "', 105, 'T', 100, '/img', 2)", "products.sold out of range");
             } finally {
                 st.execute("ROLLBACK TO v2_check_validation_sp");
                 st.execute("RELEASE v2_check_validation_sp");

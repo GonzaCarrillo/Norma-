@@ -354,6 +354,51 @@ public class CatalogMigrationTest {
         }
         CatalogDatabaseInitializer initNoFK = new CatalogDatabaseInitializer(dsNoFK);
         assertThrows(IllegalStateException.class, () -> initNoFK.initialize(), "v2 sin FK, PK ni CHECK constraints debe fallar");
+
+        // Caso I: C4 Regression - Reinicializaciones repetidas con sesiones validas (valid_sess_check_1/2, valid_sess_prod_1/2) en legacy y v2
+        Path dbPathC4 = tempDir.resolve("test_c4_restart_regression.db");
+        SQLiteDataSource dsC4 = new SQLiteDataSource();
+        dsC4.setUrl("jdbc:sqlite:" + dbPathC4.toAbsolutePath());
+        CatalogDatabaseInitializer initC4 = new CatalogDatabaseInitializer(dsC4);
+        assertDoesNotThrow(() -> initC4.initialize(), "Bootstrap v2 inicial debe ser exitoso");
+
+        List<String> testSessions = List.of("valid_sess_check_1", "valid_sess_check_2", "valid_sess_prod_1", "valid_sess_prod_2");
+        try (Connection conn = dsC4.getConnection();
+             Statement st = conn.createStatement()) {
+            for (String sId : testSessions) {
+                st.execute("INSERT INTO sessions(id, state, next_number) VALUES('" + sId + "', 'IDLE', 9)");
+                st.execute("INSERT INTO products(session_id, piece_number, title, price, image_url, sold) VALUES('" + sId + "', 1, 'P1', 15000, '/assets/p1.webp', 0)");
+            }
+        }
+
+        // Capturar snapshot logico antes de reinicializar
+        String snapBeforeC4 = captureDatabaseSnapshot(dsC4);
+
+        // Reinicializacion repetida debe pasar sin colision ni side-effect y preservar snapshot logico byte-exacto
+        assertDoesNotThrow(() -> initC4.initialize(), "Reinicializacion con sesiones valid_sess_* existentes debe ser exitosa (sin colision C4)");
+        String snapAfterC4 = captureDatabaseSnapshot(dsC4);
+        assertEquals(snapBeforeC4, snapAfterC4, "Reinicializacion repetida sobre esquema v2 con datos validos debe preservar el estado logico exacto");
+
+        // Regresion C4 sobre migracion legacy v0 con esas mismas 4 sesiones
+        Path dbPathC4Legacy = tempDir.resolve("test_c4_legacy_regression.db");
+        SQLiteDataSource dsC4Legacy = new SQLiteDataSource();
+        dsC4Legacy.setUrl("jdbc:sqlite:" + dbPathC4Legacy.toAbsolutePath());
+        try (Connection conn = dsC4Legacy.getConnection()) {
+            executeScript(conn, "src/test/resources/db/legacy-v0.sql");
+            try (Statement st = conn.createStatement()) {
+                for (String sId : testSessions) {
+                    st.execute("INSERT INTO sessions(id, state, next_number) VALUES('" + sId + "', 'IDLE', 9)");
+                    st.execute("INSERT INTO products(id, session_id, piece_number, title, price, image_url, sold) VALUES(NULL, '" + sId + "', 1, 'P1', 15000, '/assets/p1.webp', 0)");
+                }
+            }
+        }
+        CatalogDatabaseInitializer initC4Legacy = new CatalogDatabaseInitializer(dsC4Legacy);
+        assertDoesNotThrow(() -> initC4Legacy.initialize(), "Migracion v0->v2 con sesiones valid_sess_* debe ser exitosa");
+        String snapLegacyAfterMigrate = captureDatabaseSnapshot(dsC4Legacy);
+        // Segundo arranque sobre base migrada
+        assertDoesNotThrow(() -> initC4Legacy.initialize(), "Segundo arranque tras migracion debe ser exitoso");
+        String snapLegacyAfterSecondInit = captureDatabaseSnapshot(dsC4Legacy);
+        assertEquals(snapLegacyAfterMigrate, snapLegacyAfterSecondInit, "Segundo arranque sobre base migrada debe ser idempotente y byte-equivalente en snapshot logico");
     }
 
     /**
@@ -603,6 +648,31 @@ public class CatalogMigrationTest {
                 }
             }
         }
+    }
+
+    private static String captureDatabaseSnapshot(SQLiteDataSource ds) throws SQLException {
+        StringBuilder b = new StringBuilder();
+        try (Connection c = ds.getConnection();
+             Statement s = c.createStatement()) {
+            for (String q : List.of(
+                    "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name",
+                    "SELECT * FROM sessions ORDER BY id",
+                    "SELECT * FROM products ORDER BY id",
+                    "SELECT * FROM sqlite_sequence ORDER BY name",
+                    "PRAGMA user_version")) {
+                b.append(q).append("\n");
+                try (ResultSet r = s.executeQuery(q)) {
+                    int colCount = r.getMetaData().getColumnCount();
+                    while (r.next()) {
+                        for (int i = 1; i <= colCount; i++) {
+                            b.append('|').append(r.getObject(i));
+                        }
+                        b.append('\n');
+                    }
+                }
+            }
+        }
+        return b.toString();
     }
 
     private static class TestFailingDataSource implements javax.sql.DataSource {
