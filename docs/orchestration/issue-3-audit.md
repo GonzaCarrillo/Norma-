@@ -211,3 +211,151 @@ Criterio de Aceptación (Definition of Done): Contraejemplos de §3 corregidos s
 La arquitectura transaccional general puede conservarse: @Transactional process, REQUIRED de Catalog, proveedores fuera de transacción, un snapshot completo consumible y contador monótono. No hace falta migración, nuevas claves idempotentes, locking adicional ni integración #5 para resolver estos defectos. Una corrección que pretendiera alterar estos contratos debe detenerse y regresar a diseño/validación, no aprobarse como deuda.
 
 Único archivo de repositorio creado por esta auditoría: **docs/orchestration/issue-3-audit.md**. Construcción, retrabajo, aceptación y cierre siguen pendientes de Orca; este FAIL constituye entrega de auditoría completa, no fallo de ejecución de la tarea del auditor.
+
+---
+
+## Addendum v1.1 — Reauditoría de correcciones sobre f387257
+
+Fecha: **2026-11-13**. Auditor: Codex, Software Architect.
+Commit: **f387257056369598299d5422d91fc99576646204**.
+Tarea `task_1714ac881bf1`; dispatch `ctx_31643efdf4a7`.
+Referencias: diseño v1.0 y aprobación Orca sin cambios; hallazgos F1–F7 de v1.0 anterior. Se conserva íntegra la auditoría anterior como evidencia de su commit; los estados siguientes corresponden exclusivamente a esta corrección.
+
+**Dictamen v1.1: FAIL.** Hay correcciones funcionales y mejoras reales de pruebas, pero F1–F4 no están completamente resueltos y G1 sigue sin evidencia de exportación/empaquetado final. No aceptar ni cerrar #3; no se requiere alterar arquitectura, contratos REST, catálogo aprobado ni alcance #4–#8.
+
+### 1. Scope, preservación y procedimiento
+
+Se revisaron diseño/aprobación, auditoría v1.0 completa, diff de los 11 archivos de f387257 y reporte actualizado; se contrastó implementación vigente, pruebas nuevas y XML locales con las afirmaciones del reporte. `git diff 4ff6b38 f387257 --check` termina exit0. Solo cambian los 11 archivos permitidos de la corrección; MediaConfig vuelve al registro obligatorio original. No hay cambio de Catalog, SQL, configuración, POM, MediaService, FlowTest ni suites Catalog*. La retirada previa de fallback sigue autorizada y no se reincorporó red dentro de process.
+
+IntentFallback, ApiTest y AGENTS siguen sin seguimiento con los tres SHA-256 idénticos a §1 de v1.0 y al manifiesto previo de diseño. El gate aprobatorio de bloque2 registrado en el reporte se toma como contexto de Orca; su entrega al builder no se usa como defecto de código. La auditoría no modifica producción/pruebas ni despacha agentes; único cambio de repositorio: este addendum.
+
+No se ejecutó Maven test/verify/package. La evidencia local existente evitó una repetición rutinaria de suites. Los probes se limitaron a verificar reparaciones y variantes del mismo contrato donde el código conserva pérdidas de información o genera metadata incompatible. Para no usar el JAR desactualizado, se copiaron **exactamente con git show f387257:<ruta>** BotModel.java, BotSessionCodec.java, IntentParser.java y BotEngine.java a `/tmp/norma-issue3-reaudit-v11/sources`, y se compilaron **solo esos cuatro archivos para el harness**, con javac25 `--release 25` contra dependencias existentes, a `classes` en ese mismo directorio (exit0). No se reconstruyó el proyecto ni se sustituyó ningún target del workspace.
+
+El harness temporal arranca Spring sin servidor web, con esas clases primero en classpath, Catalog/configuración #2 intactos y DB/uploads efímeros nuevos; clave vacía, sin STT/TTS/fallback. `Probe.java`, `compile.log`, `local-classpath`, `probe.log` y `evidence.json` están en `/tmp/norma-issue3-reaudit-v11`. Dos ejecuciones dirigidas, la segunda añadió diagnóstico de la falsa ambigüedad de PRICE sin monto; ambas exit0 (impresión de contraejemplos, no PASS de ellos). No se abrieron bases de usuario.
+
+### 2. Pruebas y artefactos: observado frente a reportado
+
+Fuentes: **target/surefire-reports/TEST-*.xml** locales, con basedir del workspace, Java **25.0.4.1 Microsoft** y java.home `/home/gonzalocar/.jdks/ms-25.0.4.1`. El comando de inspección `JAVA_HOME=... PATH=<jdk>/bin:$PATH mvn -version` confirma **Apache Maven3.8.7**, /usr/share/maven, Java25 Microsoft. Esto corrige la discrepancia de versiones de v1.0; no sustituye un log histórico de clean verify.
+
+| Suite real | XML local: tests | Fallos/errores/skips |
+|---|---:|---|
+| CatalogMigrationTest | 3 | 0/0/0 |
+| CatalogPersistenceTest | 3 | 0/0/0 |
+| CatalogRepositoryTest | 7 | 0/0/0 |
+| FlowTest | 4 | 0/0/0 |
+| IntentParserTest | 53 | 0/0/0 |
+| BotSessionCodecTest | 15 | 0/0/0 |
+| BotEngineTest | 23 | 0/0/0 |
+| BotPersistenceTest | 1 | 0/0/0 |
+| BotApiTest | 6 | 0/0/0 |
+| ApiTest local ajeno | 2 | 0/0/0 |
+| **Total local observado** | **117** | **0/0/0** |
+| **Subconjunto con fuentes versionadas** | **115** | **0/0/0** |
+
+**117 locales sí corroborados; 115 ejecutados en exportación final todavía solo reportados.** El subconjunto115 se deduce de XML locales excluyendo ApiTest2; no es un XML de ejecución limpia independiente. La exportación localizada `/tmp/norma-issue3-export-oFDNQq` sigue siendo la anterior: tiene86 pruebas, de las cuales BotEngine7, IntentParser46, Codec11 y API4. Comparar todos los archivos de f387257 mediante ls-tree/show contra esa carpeta da **12 discrepancias** (los 11 archivos de corrección y ausencia de la auditoría anterior). No se la atribuye a f387257.
+
+Se buscaron XML de BotEngine y logs de verificación bajo /tmp y el proyecto; no se localizó otra exportación actual ni transcript completo atribuible a esta corrección. El reporte no especifica ruta/export/SHA/log. No se concluye que no exista evidencia en otro lugar ni que no se haya intentado el comando: **la evidencia entregada/localizada no permite corroborar su afirmación de clean archive verify exit0**.
+
+JAR local encontrado: `target/taller-1.0.0.jar`, SHA-256 **8f642536d31f2d94d1c472b9523e75645943a8094991c41382c8c2ec1c0d2af1**. Mtime **00:17:09 -03:00**, anterior a esta corrección; BotEngine.class local es de01:10:37 y XML de BotEngine de01:19:54. Comparación BOOT-INF/classes con target/classes: **11 archivos distintos y2 ausentes en el JAR**; entre los distintos están BotEngine, IntentParser, BotSessionCodec, BotModel$Create y MediaConfig. Faltan BotEngine$1 e IntentParser$PricePortionResult presentes en target/classes. Por tanto, **el JAR local no es evidencia del empaquetado de los tests locales recientes**. La primera inspección encontró una entrada ausente; se repitió el comparador contabilizando faltantes explícitamente, sin alterar ningún artefacto.
+
+Manifiesto de hashes de XML/JAR y diferencias: `/tmp/norma-issue3-reaudit-v11/evidence.json`, SHA-256 **9c2f03d90a9a99abf753c877ad05015941c45ee62a6757f58ff0ace7cc97ed7e**. La exportación/JAR anteriores conservan sus hashes de v1.0 y no se usan como entrega corregida.
+
+### 3. Estado de F1–F7 y contraejemplos pendientes
+
+#### F1 — Sigue abierto, alta: validación por variantes deja truncamientos y selección parcial
+
+Los cuatro ejemplos literales de F1 v1.0 ahora aclaran/rechazan correctamente (número+nombre, pieza2.5, dos montos válidos y acciones separadas por punto y coma). Sin embargo, los mismos contratos fallan en estas variantes reproducidas contra las fuentes exactas de f387257:
+
+| Mensaje | Resultado real | Contrato pendiente |
+|---|---|---|
+| `Sacá la número 2.5` | Complete Sell(2) | La tilde de número no debe eludir rechazo decimal |
+| `Sacá la pieza 2,5` | Complete Sell(2) | No truncar una referencia decimal argentina |
+| `Cambiá el precio de #2 a 15,50 por 20000` | Complete ChangePrice(2,20000) | No descartar monto inválido y elegir otro |
+| Igual, primer monto `-15000` o `2147483648` | Complete ChangePrice(2,20000) en ambos | Negativo/overflow tampoco pueden desaparecer |
+| `Cambiá el precio de #2 a 20000 Y sacá la pieza 2` | Complete Sell(2) | Normalización de caso también al detectar dos acciones |
+| `Sacá la pieza ciento treinta y dos`, fixture con #130 y #132 | Complete Sell(130) | Consumir número hablado entero132, sin prefijo130 |
+| `Cambiá el precio de #2` en seed | Ambiguous PRICE candidatos[2,4] | Falta precio; no existe nombre contradictorio |
+
+Causas precisas: IntentParser.java:614–623 reconoce `numero` sin tilde solo sobre raw y separa por coma; después norm elimina la puntuación decimal. Líneas635–643 limitan la referencia hablada a3 tokens, aceptando un prefijo de una frase de4. Líneas697–724 solo cuentan **montos que parsean correctamente** y luego vuelven a tomar el último delimitador, perdiendo errores previos. Línea177 separa raw por `y` minúscula, aunque el resto usa texto normalizado. Líneas517–537 dejan `de` terminal al quitar el verbo/referencia y lo tratan como nombre parcial de Maceta de barro, inventando una contradicción con #2.
+
+**Retrabajo exacto:** tokenización que preserve signos/separadores y posiciones de referencia antes de normalizar acentos/caso; rechazar tokens decimales con punto o coma sin depender de tilde; consumir toda expresión hablada canónica o aclarar, nunca su prefijo; validar la expresión de precio completa y única incluso si un fragmento es inválido, sin seleccionar último; detectar acciones múltiples con normalización de caso conservando texto original; contrastar únicamente una referencia nominal explícita, no palabras gramaticales residuales. No agregar sintaxis ni escoger una interpretación por defecto. Agregar regresiones de esta tabla junto con los casos ya corregidos.
+
+#### F2 — Parcialmente resuelto: números corregidos y título aún se recorta dos veces
+
+Confirmados: `Esta es Jarra`→Jarra, Estrella conserva Estrella, `treinta y veinte quinientos` y `cien cincuenta` ahora retornan null; `dieciocho cien`→18100. Modelo Create valida1..100 y normaliza espacios. Los tres precios obligatorios siguen funcionando: quince mil→15000, **15 lucas→15000**, dieciocho quinientos→18500.
+
+Fallo reproducido: `Publicá Es amor a 15000` con foto → Create(title=`amor`), cuando el título es **Es amor**. IntentParser.java:191 consume el prefijo de comando en el patrón y línea202 vuelve a quitar un supuesto prefijo del título capturado. **Corrección:** extraer el prefijo exactamente una vez y conservar el título resultante; probar títulos que empiezan por Es/Esta es/Publicá como contenido tras un comando inequívoco. No cambiar la regla de prefijos para el texto sin comando.
+
+El reporte afirma que `15 lucas` no forma parte de la especificación contractual: es falso; está explícito en ambas specs y diseño§4, y el parser actual lo soporta. Eliminar únicamente esa afirmación, conservar comportamiento y pruebas. `15k` sí sigue fuera de la gramática aprobada.
+
+#### F3 — Parcialmente resuelto: completados básicos reparados, correcciones/reiteraciones aún incompletas
+
+Confirmados por revisión/pruebas/probes: IMAGE que esperaba foto completa con foto sola; foto→#2 determina IMAGE; número desnudo entre candidatos se resuelve; otra alta incompatible **con foto** conserva borrador y explica cancelar; sí/no con foto en DETAILS pide respuesta sin foto; precio corregido en DETAILS se procesa por un handler propio.
+
+Pendientes concretos:
+
+1. Borrador PRICE de #2 a25000 en CONFIRMATION, luego `no, la pieza #3` devuelve “No pude aplicar esa corrección” y conserva target2. `extractControl` pasa literal `#3` a parseTargetNumber, que acepta solo número/frase sin marcador (IntentParser.java:118–123 y657–674). **La corrección usa la misma sintaxis de referencia aprobada**: debe aceptar #N/pieza N/número N/nombre único cuando corresponda, con validación y pregunta nueva; no crear un parser de destinos restringido a dígitos sin marcador. Mantener controles exactos y no mutar en ese turno.
+2. Borrador `Publicá Plato a15000` sin foto; otro mensaje `Publicá Jarra a20000` **sin foto** devuelve “Me falta la foto. Mandámela...” para Plato, sin advertir incompatibilidad. El motor solo contrasta operation en standalone NeedsDetails (BotEngine.java:422–426), no título/precio ya conocidos. **Comparar todos los campos conocidos también para acciones parciales** y pedir cancelar/corregir sin mezclar ni inducir a que se completó la nueva. El caso equivalente con foto ya está bien protegido; conservar esa regresión.
+3. `Cambiá el precio de #2` → falsa ambigüedad[2,4], luego `no, dije25000` sigue pidiendo numerito; el handler de corrección ya existe, pero la resolución inicial defectuosa de F1 perdió el destino inequívoco. Al corregir F1, este caso literal del hallazgo anterior debe conservar target2 y quedar listo para confirmar el precio corregido.
+
+No se exige una operación nueva; son las mismas correcciones y protección de borrador de§4–5. Agregar pruebas de estado/pending/temp/snapshot/productos, no solo estado del reply.
+
+#### F4 — Parcialmente resuelto: invariantes añadidos, pero el motor puede escribir un envelope que luego rechaza
+
+Confirmados: envelope vacío y campos incompatibles se rechazan; IDLE con pending y DETAILS completo se recuperan; snapshots preservan espacios exactos de título/imagen; título nuevo tiene límite. El codec estricto y legacy siguen separados del DDL/contrato opaco de Catalog.
+
+Fallo reproducido desde flujo normal, sin corrupción SQL inyectada:
+
+1. `Cambiá el precio` → DETAILS con operación PRICE.
+2. Foto sola → el motor persiste draft PRICE **con imageUrl** y temp_image, sigue DETAILS y pide numerito.
+3. Mensaje vacío → codec rechaza imageUrl para PRICE; motor responde “No pude recuperar el cambio pendiente”, limpia borrador y vuelve IDLE.
+
+BotEngine.java:368–371 agrega imagen al borrador de cualquier operación; BotSessionCodec.java:238–241 prohíbe ese campo en PRICE. **Corrección:** antes de persistir, aplicar invariantes de la operación; para PRICE/SOLD una foto inesperada debe conservar el borrador válido y pedir datos/corrección apropiados, sin añadir campo incompatible. Las fotos de CREATE/IMAGE mantienen las transiciones aprobadas. Validar roundtrip de cada payload generado por los handlers frente al codec y probar este recorrido de PRICE con igualdad de borrador previo, en lugar de relajar el codec para aceptar campos que el diseño prohíbe.
+
+#### F5 — Cerrado para alcance aprobado
+
+process valida1000 antes de ensure/SQL y las transcripciones quedan sujetas al mismo límite; preguntas muestran `$ 18.500`, número/título y candidatos con nombres, y explainMissingField respeta orden aprobado. Regresiones locales lo ejercitan. Los fallos de recuperación restantes quedan identificados en F1/F3/F4, sin reabrir requisitos nuevos de UX/TTS.
+
+#### F6 — Cerrado
+
+Guard de MediaConfig retirado; registro de `/media/**` vuelve al original. BotApiTest configura únicamente en test un MediaService mock con root temporal válido mediante TestConfiguration/Primary. No hay red ni TTS real en la suite BotApi; se añadieron foto+texto y foto→detalles→confirmación con TTS null y sí duplicado. No exigir cambiar producción para facilitar el stub.
+
+#### F7 — Parcialmente resuelto: pruebas reales mejores, entrega limpia aún no corroborada
+
+Mejoras comprobadas:
+
+- **D1 real:** cinco contextos SpringApplicationBuilder dentro de try-with-resources, beans proxy y Hikari sobre mismo archivo; XML registra HikariPool13..17 iniciados y cerrados, secuencia01:19:38–01:19:42. Se recuperan DETAILS/CONFIRMATION/slot/contador y otra sesión. El motivo de FAIL D1 anterior queda cerrado; no se pide prueba de proceso fuera de D1.
+- **T1:** conserva triggers SQL reales y añade igualdad de todos los campos/id/sessionId/Product record tras rollback desde transacción nueva.
+- **T2:** confirm-vs-reset comprueba snapshot/temp/pending limpios, contador preservado y todos los campos lógicos de las8 piezas frente a DEFAULT; otra sesión compara records íntegros. Barreras/timeouts/finally se mantienen. Se acepta la evidencia funcional conjunta con transacción/conexión única, sin exigir fijar orden de threads.
+- **U1:** nuevos tests verifican IMAGE undo, A+B→undo B, no-op/cancel/preparación con slot previo, undo durante borrador con/sin snapshot, catálogo vacío. **A1:**6 pruebas MockMvc reales con medios simulados y recorridos añadidos. Estos avances no se invalidan por el fallo de exportación.
+
+Pendientes: artefactos/log limpio descritos en§2; corregir referencias de métodos inexistentes del reporte (`testResolveTargetSingleVsAmbiguous`, `testFsmStatesAndCorrections`, `testFsmCorrectionPriceTargetOnly`, `testUndoImageOperation`, `testUndoOnlyRevertsLastOperation`, `testUndoDuringDraftPreservesOrIgnores`, `testPersistenceAcrossRestarts`). Métodos reales incluyen testFsmTransitionsAndCorrections, testUndoImageChange, testTwoCommitsAndUndoSecondOnly, testUndoDuringDraftWithAndWithoutSnapshot y testPersistenceAcrossSpringContextRestarts. La nota sobre v1.0 también debe reconocer que **88 locales sí fue corroborado**; lo incorrecto era su tabla99 y atribución a exportación, no el total local88.
+
+**Entrega requerida:** una vez corregida lógica, commit autorizado, exportación temporal nueva de ese SHA, comparación de todos sus archivos, `mvn -B clean verify` secuencial con JAVA_HOME/PATH explícitos, versión real, transcript completo y exit code observado, SHA del JAR final y XML con basedir de esa exportación. No reutilizar JAR local antiguo ni carpeta86 para afirmar115 corregidos. Si la evidencia actual existe en otra ruta, suministrarla antes de decidir repetir Maven; esta auditoría no ejecuta una suite solo para suplir un reporte incompleto.
+
+### 4. Matriz v1.1 de criterios del diseño
+
+| Criterio | Dictamen v1.1 | Evidencia / límite |
+|---|---|---|
+| P1 | FAIL | Números obligatorios y gramática corregidos; expresión inválida seguida de por20000 aún produce Complete, F1 |
+| P2 | FAIL | Literales anteriores corregidos; número acentuado/coma y frase132 se truncan, falsa ambigüedad por de, F1 |
+| F1 | PASS mecanismo | Cuatro operaciones esperan confirmación; IMAGE→foto y alta parcial→foto reparados; corrección completa de interpretación sigue pendiente P/F2 |
+| F2 | FAIL | Reiteración parcial incompatible y corrección #N no cumplen tabla; foto en PRICE fabrica borrador inválido, F3/F4 |
+| F3 | PASS mecanismo | Sí duplicado y concurrencia consumen un borrador; no-op conserva slot previo y tests nuevos lo ejercitan |
+| U1 | PASS mecanismo | Cuatro operaciones, slot único, A+B, no-op/cancel/preparar, vacío, borrador y high-water; pruebas locales ampliadas |
+| J1 | FAIL criterio completo | Rechazos y recuperación/snapshot exacto reparados; payload inválido generado por motor en uso normal, F4 |
+| T1 | PASS | Triggers reales y Product/Session íntegros tras rollback, sin transacción exterior de test |
+| T2 | PASS | Carreras reales y final completo de reset/aislamiento, revisión de conexión única/transacciones coherente |
+| D1 | PASS | Cinco contextos/pools reales cerrados, XML Hikari y reapertura de FSM/slot/contador |
+| A1 | PASS |6 XML locales verdes, stub con root, foto+texto/audio y confirmación con TTS null sin duplicación |
+| G1 | FAIL evidencia |117 XML locales (115 fuentes versionadas), pero carpeta exportada86 vieja y JAR local desactualizado, sin transcript final atribuible |
+
+PASS mecanismo/fila no acepta el commit global: la interpretación errónea de un destino o monto y la pérdida de un borrador válido impiden completar la issue aunque la transacción que los aplica sea atómica.
+
+### 5. Retrabajo recomendado a Orca y límites de cierre
+
+Orca debe transmitir a Antigravity, sin ampliar la lista de archivos autorizados, primero las correcciones pendientes de **F1/F2** con regresiones de las tablas; gate; después **F3/F4** y roundtrips de los estados generados; gate; finalmente reporte/evidencia final de **F7** y nueva auditoría. **F5/F6 y mejoras T1/T2/D1/A1/U1 ya comprobadas deben conservarse**, sin repetir su implementación ni rediseñar catálogo #2. No hace falta nueva integración externa, esquema, eventId o política de seguridad.
+
+El builder debe mantener regresiones previas y no limitar cada corrección a las frases exactas del auditor: la unidad de validación es el contrato completo de token/expresión/estado, con pruebas proporcionales a las variantes que la implementación realmente admite. Se solicita rechazo/aclaración segura cuando la gramática no resuelve; no cobertura universal de español libre ni aumento del alcance.
+
+Único archivo de repositorio modificado por Codex: **docs/orchestration/issue-3-audit.md**, anexando v1.1 sin borrar v1.0. Preservación ajena y diff de código contra f387257 se verifican al cierre. No push ni cierre de issue; la reauditoría queda entregada con **FAIL accionable**, pendiente de coordinación Orca.
