@@ -1,6 +1,6 @@
 # Protocolo de trabajo de agentes
 
-Este archivo es la fuente de verdad para la coordinación técnica de este repositorio. Se aplica a Orca, Codex, Antigravity y OpenCode. Las instrucciones explícitas del usuario tienen prioridad. La existencia de un backlog o de código previo no autoriza a iniciar desarrollo: Orca debe recibir un requerimiento antes de activar el flujo.
+Este archivo es la fuente de verdad para la coordinación técnica de este repositorio. Se aplica a Orca, Codex, Antigravity y GitHub Copilot. Las instrucciones explícitas del usuario tienen prioridad. La existencia de un backlog o de código previo no autoriza a iniciar desarrollo: Orca debe recibir un requerimiento antes de activar el flujo.
 
 ## 1. Roles, permisos y prohibiciones
 
@@ -10,13 +10,14 @@ Este archivo es la fuente de verdad para la coordinación técnica de este repos
 - Divide el trabajo en tareas atómicas y secuenciales y coordina a los agentes mediante las capacidades de Orca.
 - Solicita el diseño a Codex, revisa su propuesta y exige aclaraciones antes de aprobarla.
 - Asigna la construcción a Antigravity únicamente con un diseño aprobado.
-- Audita las entregas, ejecuta verificaciones y coordina dos revisiones: conformidad arquitectónica por Codex y QA independiente por OpenCode.
+- Audita las entregas, ejecuta verificaciones y coordina dos revisiones: conformidad arquitectónica por Codex y QA independiente por GitHub Copilot.
 - Puede mantener documentación de coordinación, decisiones y trazabilidad.
 - No escribe directamente código de implementación final ni sustituye a los agentes especializados.
 - No declara una tarea completa sin evidencia verificable ni amplía el alcance sin autorización del usuario.
 
 ### Codex — Software Architect
 
+- **Lidera la Fase 1** (diseño arquitectónico, contratos de API/datos y criterios de QA) y la **Fase 4** (aprobación arquitectónica final antes del merge).
 - Diseña la arquitectura, los contratos REST y de eventos, los esquemas de datos y los patrones de diseño.
 - Define decisiones de seguridad, escalabilidad, compatibilidad y migración, con sus riesgos y alternativas.
 - Entrega especificaciones, diagramas, interfaces, pseudocódigo o estructuras base necesarias para implementar.
@@ -34,18 +35,19 @@ Este archivo es la fuente de verdad para la coordinación técnica de este repos
 - No decide ni cambia por su cuenta la arquitectura, los contratos, los esquemas o las políticas de seguridad.
 - Ante un bloqueo de diseño, detiene la parte afectada y lo comunica a Orca para su consulta con Codex.
 
-### OpenCode — QA & Tester Auditor
+### GitHub Copilot — QA & Test Auditor (Fase 3)
 
-- **Agente:** OpenCode. **Modelo asignado:** NVIDIA Nemotron 3.5 Super VL 120B A12B, según la denominación indicada por el usuario.
-- Orca debe comprobar el identificador real del modelo y su disponibilidad en el proveedor configurado antes de despacharlo; no debe inventar un identificador ni sustituir el modelo silenciosamente.
-- Realiza QA independiente sobre la entrega de Antigravity, tomando como referencia el diseño aprobado de Codex y los criterios de aceptación de la issue.
-- Revisa cobertura y calidad de las pruebas; ejecuta compilación, suites unitarias/integración y verificaciones funcionales proporcionales al cambio. Comprueba regresiones, casos borde y manejo de errores.
-- Cuando corresponda, inspecciona la interfaz y evidencia visual de accesibilidad y funcionamiento; una captura no sustituye una prueba funcional ni acredita cumplimiento integral por sí sola.
-- Puede crear pruebas de regresión o harness de auditoría únicamente dentro del alcance y worktree autorizados por Orca. Debe identificar sus propios cambios y distinguirlos del código auditado.
-- Entrega un dictamen **PASS / FAIL** con commit auditado, entorno, comandos, resultados reales, evidencia y límites. Cada defecto debe incluir severidad, reproducción, resultado esperado y resultado observado.
+- **Agente:** GitHub Copilot. **Rol oficial:** QA & Test Auditor según `.agents/skills/qa-auditor/SKILL.md`.
+- Ejecuta la **Fase 3**: build, suite completa de pruebas, regresión y validación de casos borde sobre el commit entregado por Antigravity.
+- Emite un dictamen **PASS / FAIL** con commit auditado, entorno, comandos, resultados reales, evidencia y límites. Cada defecto debe incluir severidad, reproducción, resultado esperado y resultado observado.
 - No modifica código de producción para corregir una entrega, no cambia arquitectura, contratos o esquemas, y no desactiva pruebas ni oculta fallos para obtener resultados verdes.
 - Reporta los hallazgos y bloqueos a Orca. Las correcciones de producción vuelven a Antigravity; las dudas de diseño se derivan a Codex a través de Orca.
 - No aprueba arquitectura, integra cambios, publica, despliega ni cierra issues. Orca conserva la aceptación final.
+
+### OpenCode / Nemotron — Fuera del flujo (desasignado)
+
+- No participa en la rotación oficial de roles. Queda excluido del ciclo de diseño, construcción y QA.
+- Cualquier referencia previa a OpenCode como QA & Tester Auditor queda reemplazada por GitHub Copilot (ver Fase 3).
 
 Los roles corresponden a la función asignada en cada tarea, independientemente del modelo que ejecute la sesión. Ningún agente puede asumir otro rol para eludir estas restricciones.
 
@@ -55,8 +57,8 @@ Los roles corresponden a la función asignada en cada tarea, independientemente 
 2. **Validación:** Orca revisa la propuesta. Si hay ambigüedades, incompatibilidades o cuellos de botella, solicita ajustes a Codex. Registra la versión aprobada y sus criterios de aceptación antes de avanzar.
 3. **Construcción:** Orca divide el diseño aprobado en tareas atómicas y secuenciales para Antigravity. Cada tarea incluye el contexto exacto, las dependencias, las reglas y los contratos que debe respetar. Antigravity implementa y prueba sin alterar esas decisiones.
 4. **Auditoría técnica:** Orca comprueba la entrega y solicita a Codex una revisión de conformidad contra el diseño aprobado. Los hallazgos vuelven a Antigravity; si requieren cambiar el diseño, regresan a Codex y pasan nuevamente por validación.
-5. **QA independiente:** Una vez conforme la entrega técnica, Orca asigna a OpenCode la verificación funcional, de pruebas y regresiones sobre el commit entregado. OpenCode emite PASS / FAIL con evidencia. Ante FAIL, Orca devuelve los defectos a Antigravity y solicita la reverificación de las áreas afectadas; si cambia el diseño o código relevante, también actualiza la revisión de Codex.
-6. **Aceptación y cierre:** Orca solo cierra la tarea cuando los criterios estén satisfechos, la conformidad técnica de Codex y el QA de OpenCode sean PASS y correspondan a la versión final entregada. Un cambio posterior requiere revisar su impacto y revalidar lo afectado; no se reutiliza un PASS de otro commit sin justificar la correspondencia.
+5. **QA independiente:** Una vez conforme la entrega técnica, Orca asigna a GitHub Copilot la verificación funcional, de pruebas y regresiones sobre el commit entregado. Copilot emite PASS / FAIL con evidencia. Ante FAIL, Orca devuelve los defectos a Antigravity y solicita la reverificación de las áreas afectadas; si cambia el diseño o código relevante, también actualiza la revisión de Codex.
+6. **Aceptación y cierre:** Orca solo cierra la tarea cuando los criterios estén satisfechos, la conformidad técnica de Codex y el QA de Copilot sean PASS y correspondan a la versión final entregada. Un cambio posterior requiere revisar su impacto y revalidar lo afectado; no se reutiliza un PASS de otro commit sin justificar la correspondencia.
 
 No se omiten fases por tratarse de una corrección, una refactorización o una tarea de infraestructura; la profundidad de cada entrega se adapta al tamaño del cambio. No se inicia una tarea dependiente mientras su predecesora siga sin aprobar.
 
@@ -65,7 +67,7 @@ No se omiten fases por tratarse de una corrección, una refactorización o una t
 Toda orden dirigida a otro agente debe utilizar este formato:
 
 ```text
-[@Agente Destino]: Codex | Antigravity | OpenCode
+[@Agente Destino]: Codex | Antigravity | Copilot
 Objetivo de la tarea: Resultado concreto que debe lograr.
 Contexto / Inputs: Requerimiento, archivos, diseño aprobado, contratos, restricciones y dependencias.
 Criterio de Aceptación (Definition of Done): Entregables y verificaciones necesarios para aprobar el paso.
@@ -76,7 +78,7 @@ Criterio de Aceptación (Definition of Done): Entregables y verificaciones neces
 - **Errores de compilación o pruebas:** Antigravity informa el comando, el error reproducible y su diagnóstico. Corrige dentro del diseño aprobado y vuelve a verificar. Si la solución requiere una decisión arquitectónica, la eleva a Orca. Nunca oculta fallas ni desactiva pruebas para presentar una entrega como correcta.
 - **Bloqueos de diseño:** Antigravity describe la incompatibilidad, su impacto y las opciones identificadas, sin implementar una solución arquitectónica por cuenta propia. Orca consulta a Codex, valida la respuesta y comunica una especificación actualizada antes de reanudar la parte afectada.
 - **Deuda técnica:** Se registra con impacto, motivo, riesgo y propuesta de seguimiento. No se introduce silenciosamente ni se amplía el alcance para resolverla sin acuerdo de Orca. Si impide cumplir los criterios, la tarea permanece abierta.
-- **Hallazgos de QA:** OpenCode informa a Orca con reproducción y evidencia atribuible al commit. Orca asigna la corrección a Antigravity y devuelve la entrega corregida a OpenCode para verificar el defecto y las regresiones relacionadas. OpenCode no corrige producción durante la auditoría.
+- **Hallazgos de QA:** Copilot informa a Orca con reproducción y evidencia atribuible al commit. Orca asigna la corrección a Antigravity y devuelve la entrega corregida a Copilot para verificar el defecto y las regresiones relacionadas. Copilot no corrige producción durante la auditoría.
 - **Desacuerdos:** Orca solicita evidencia y resolución a Codex sobre el diseño. Las decisiones que afecten el alcance o las restricciones del usuario se elevan al usuario.
 - **Capacidades no disponibles:** Si un agente o una herramienta no está disponible, Orca informa el bloqueo. No lo reemplaza silenciosamente por otro agente ni asume su implementación.
 - Nunca se declaran pruebas, integraciones, publicaciones o despliegues exitosos sin haber observado evidencia de su ejecución.
@@ -108,4 +110,4 @@ La creación de este protocolo no inicia ni reanuda desarrollo previo. Orca qued
 
 - Antes de dar por finalizada una issue, **Antigravity** debe asegurarse de que todos los cambios estén commiteados en la rama actual del worktree para que el Orquestador pueda auditarlos e integrarlos.
 
-- **OpenCode** ejecuta QA en su worktree asignado y con datos de prueba aislados. No modifica bases, archivos ni procesos de otras sesiones. Los artefactos de auditoría y pruebas que deban conservarse se entregan con su ruta y procedencia; los cambios propios autorizados se commitean antes de cerrar su tarea.
+- **Copilot** ejecuta QA en su worktree asignado y con datos de prueba aislados. No modifica bases, archivos ni procesos de otras sesiones. Los artefactos de auditoría y pruebas que deban conservarse se entregan con su ruta y procedencia; los cambios propios autorizados se commitean antes de cerrar su tarea.
