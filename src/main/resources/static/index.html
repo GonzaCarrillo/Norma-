@@ -1,15 +1,79 @@
-<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f7f1e6"><title>El Taller de Norma</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head><body>
-<a class="skip" href="#piezas">Ir a las piezas</a>
-<header><p class="eyebrow">HECHO A MANO · CON TIEMPO Y CARIÑO</p><h1>El Taller de Norma</h1><p>Si te gusta alguna pieza, anotá el numerito y escribime a mi WhatsApp de siempre.</p>
-<div class="tools"><button id="font" aria-pressed="false">Letra más grande</button><button id="listen">Escuchar catálogo</button><button id="silence" hidden>Dejar de escuchar</button></div></header>
-<main><p id="status" role="status">Buscando las piezas del taller…</p><div id="piezas" class="grid" tabindex="-1" aria-label="Piezas disponibles"></div></main>
-<footer>Cada pieza es única. Gracias por acompañar mi taller. <span aria-hidden="true">♡</span></footer>
-<button id="open" class="evaluation">Modo evaluación: conversar con Norma</button>
-<dialog id="zoom" aria-label="Foto ampliada de la pieza"><img id="zoom-image" alt=""><button id="close-zoom">Volver a las piezas</button></dialog>
-<dialog id="sim" aria-labelledby="sim-title"><div class="sim-head"><h2 id="sim-title">WhatsApp de Norma · Simulador</h2><button id="close">Volver al catálogo</button></div>
-<p>Probá con tu voz, una foto o un mensaje. Los cambios son solo para tu sesión.</p>
-<div id="chat" role="log" aria-live="polite"></div>
-<div class="examples" aria-label="Ejemplos de Norma"><button data-demo="create">Escuchar ejemplo: pieza nueva</button><button data-demo="price">Escuchar ejemplo: precio</button><button data-demo="image">Escuchar ejemplo: foto nueva</button><button data-demo="sold">Escuchar ejemplo: pieza vendida</button></div>
-<form id="message"><label for="text">Mensaje para el asistente</label><input id="text" name="text" maxlength="1000" placeholder="A la número 2 subila a veinte mil pesos"><label for="photo">Foto de la pieza</label><input id="photo" type="file" accept="image/jpeg,image/png,image/webp"><div class="tools"><button id="record" type="button">Grabar audio</button><button type="submit">Enviar mensaje</button></div></form>
-<div class="tools"><button id="yes">Sí, confirmo</button><button id="no">No, cancelar</button><button id="undo">Me equivoqué: deshacer</button><button id="reset">Restaurar catálogo original</button></div>
-<p id="bot-status" role="status"></p><audio id="reply-audio" controls hidden></audio></dialog></body></html>
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f1e6">
+  <title>El Taller de Norma</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#piezas">Ir a las piezas</a>
+  <header>
+    <p class="eyebrow">HECHO A MANO · CON TIEMPO Y CARIÑO</p>
+    <h1>El Taller de Norma</h1>
+    <p>Si te gusta alguna pieza, anotá el numerito y escribime a mi WhatsApp de siempre.</p>
+    <div class="tools">
+      <button id="font" type="button" aria-pressed="false">Letra más grande</button>
+      <button id="listen" type="button">Escuchar catálogo</button>
+      <button id="silence" type="button" hidden>Dejar de escuchar</button>
+    </div>
+  </header>
+  <main>
+    <div id="status-container" class="status-box">
+      <p id="status" role="status" aria-live="polite">Buscando las piezas del taller…</p>
+      <button id="retry" type="button" hidden>Reintentar</button>
+    </div>
+    <div id="piezas" class="grid" tabindex="-1" aria-label="Piezas disponibles"></div>
+  </main>
+  <footer>
+    Cada pieza es única. Gracias por acompañar mi taller. <span aria-hidden="true">♡</span>
+  </footer>
+  <button id="open" type="button" class="evaluation">Modo evaluación: conversar con Norma</button>
+
+  <dialog id="zoom" aria-label="Foto ampliada de la pieza">
+    <div class="zoom-content">
+      <img id="zoom-image" alt="">
+      <p id="zoom-caption" class="zoom-caption"></p>
+      <div class="zoom-actions">
+        <button id="zoom-silence" type="button" hidden>Dejar de escuchar</button>
+        <button id="close-zoom" type="button">Volver a las piezas</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="sim" aria-labelledby="sim-title">
+    <div class="sim-head">
+      <h2 id="sim-title">WhatsApp de Norma · Simulador</h2>
+      <button id="close" type="button">Volver al catálogo</button>
+    </div>
+    <p>Probá con tu voz, una foto o un mensaje. Los cambios son solo para tu sesión.</p>
+    <div id="chat" role="log" aria-live="polite"></div>
+    <div class="examples" aria-label="Ejemplos de Norma">
+      <button type="button" data-demo="create">Escuchar ejemplo: pieza nueva</button>
+      <button type="button" data-demo="price">Escuchar ejemplo: precio</button>
+      <button type="button" data-demo="image">Escuchar ejemplo: foto nueva</button>
+      <button type="button" data-demo="sold">Escuchar ejemplo: pieza vendida</button>
+    </div>
+    <form id="message">
+      <label for="text">Mensaje para el asistente</label>
+      <input id="text" name="text" maxlength="1000" placeholder="A la número 2 subila a veinte mil pesos">
+      <label for="photo">Foto de la pieza</label>
+      <input id="photo" type="file" accept="image/jpeg,image/png,image/webp">
+      <div class="tools">
+        <button id="record" type="button">Grabar audio</button>
+        <button type="submit">Enviar mensaje</button>
+      </div>
+    </form>
+    <div class="tools">
+      <button id="yes" type="button">Sí, confirmo</button>
+      <button id="no" type="button">No, cancelar</button>
+      <button id="undo" type="button">Me equivoqué: deshacer</button>
+      <button id="reset" type="button">Restaurar catálogo original</button>
+    </div>
+    <p id="bot-status" role="status"></p>
+    <audio id="reply-audio" controls hidden></audio>
+  </dialog>
+</body>
+</html>
