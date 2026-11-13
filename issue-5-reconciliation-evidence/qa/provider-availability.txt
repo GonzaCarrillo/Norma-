@@ -1,0 +1,2 @@
+edge-tts: absent from PATH; provider not invoked
+Groq: not invoked; tests use mocked RestClient

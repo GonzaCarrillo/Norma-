@@ -11,8 +11,15 @@ import org.springframework.http.*;
 @RestController
 public class Api {
  private final Catalog catalog;private final BotEngine bot;private final MediaService media;
+ private final IntentParser parser;private final IntentFallback fallback;
  final Map<String,CopyOnWriteArrayList<SseEmitter>> streams=new ConcurrentHashMap<>();
- public Api(Catalog c,BotEngine b,MediaService m){catalog=c;bot=b;media=m;}
+ @org.springframework.beans.factory.annotation.Autowired
+ public Api(Catalog c,BotEngine b,MediaService m,IntentParser parser,IntentFallback fallback){
+  catalog=c;bot=b;media=m;this.parser=parser;this.fallback=fallback;
+ }
+ public Api(Catalog c,BotEngine b,MediaService m){
+  this(c,b,m,new IntentParser(),null);
+ }
  @GetMapping("/api/ping") public String ping(){return "PONG";}
  @GetMapping("/api/products") public List<Catalog.Product> products(@RequestParam String sessionId){catalog.ensure(sessionId);return catalog.all(sessionId).stream().filter(p->!p.sold()).toList();}
  @PostMapping("/api/reset") public Map<String,String> reset(@RequestParam String sessionId){catalog.reset(sessionId);publish(sessionId);return Map.of("message","El catálogo original ya está restaurado.");}
@@ -27,6 +34,19 @@ public class Api {
  if(text!=null&&text.length()>1000)throw new IllegalArgumentException("El mensaje es demasiado largo.");
  if(hasAudio)text=media.transcribe(audio);
  String photo=image==null||image.isEmpty()?null:media.image(image);
+ catalog.ensure(sessionId);
+ var sess=catalog.session(sessionId);
+ var products=catalog.all(sessionId);
+ if(fallback!=null
+   &&"IDLE".equals(sess.state())
+   &&sess.pending()==null
+   &&parser.extractControl(text,photo) instanceof BotModel.None
+   &&parser.interpret(text,photo,products,null) instanceof BotModel.Unknown){
+  var normalized=fallback.normalize(text,photo,products);
+  if(normalized.isPresent()){
+   text=normalized.get();
+  }
+ }
  var result=bot.process(sessionId,text,photo);publish(sessionId);
  return new BotEngine.Reply(result.replyText(),media.speak(result.replyText()),result.state());
  }
