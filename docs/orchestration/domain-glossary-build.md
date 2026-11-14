@@ -88,3 +88,20 @@ El glosario refleja fielmente el comportamiento y las invariantes codificadas en
 - **Formato estricto**: Se respetó el formato de encabezado de contexto breve (1-2 frases), sección `## Language`, entradas `**Término**: definición (1-2 frases)` y cláusula `_Avoid_: sinónimos confusos a evitar`.
 - **Registro de decisiones (ADR)**: No se crearon nuevos ADRs ni se modificó `docs/decisiones.md`. Las decisiones D5, D8, D9 y D10 se mantienen vigentes como marco de referencia.
 - **Alcance acotado**: Se limitó estrictamente a la creación de `GLOSSARY.md` y `docs/orchestration/domain-glossary-build.md`. No se tocaron archivos de código fuente, pruebas ni configuración.
+
+
+---
+
+## 5. Adenda: Corrección de Definiciones y Calibración de Dominio Pre-Fase 4
+
+**Fecha**: 14 de Noviembre de 2026  
+**Tarea / Dispatch**: `task_baa25e7766b7` / `ctx_c71d78feeb17`  
+**Motivo**: Observaciones de revisión arquitectónica de Codex sobre el commit `6a21cca` (tras aprobación QA `b5ef23b`).
+
+Se realizaron ajustes puntuales en `GLOSSARY.md` para evitar asunciones fácticas no verificadas sobre autoría o garantías de permanencia histórica:
+
+1. **Ajuste en `Pieza`**: Se eliminó la afirmación de que cada pieza es "creada manualmente por Norma" o de "fabricación única", dado que el catálogo de evaluación contiene una muestra representativa derivada de fuentes humanas y no certifica autoría personal ni stock físico real. La definición canónica adoptada es: *unidad artesanal representada e identificada dentro del catálogo de una sesión de evaluación*.
+2. **Ajuste en `Pieza vendida` y `Registro de venta`**: Se sustituyó la referencia a "catálogo histórico / registros históricos permanentes" por la precisión de que la pieza permanece en el *catálogo actual de la sesión* sin exhibirse en la vidriera. Se mantiene el concepto de que registrar la venta no elimina la pieza, pero se aclara que acciones de sesión como `reset` o `undo` pueden reemplazar o revertir el catálogo sin constituir un registro histórico indeleble ni un registro de auditoría permanente.
+3. **Ajuste en `Cambio de fotografía`**: Se especificó que conserva intactos la identidad, número de pieza, título y precio, removiendo la frase "no altera el historial del objeto", dado que la confirmación del cambio sí genera un nuevo punto de restauración (`snapshot`) en la sesión.
+4. **Ajuste en `Confirmación`**: Se reemplazó la frase "aplicación definitiva" por "aplicación confirmada", reflejando que la operación puede ser revertida inmediatamente mediante la acción `Deshacer`.
+5. **Calibración de términos a evitar (`_Avoid_`)**: Se eliminaron tecnicismos innecesarios (como "ID de base de datos" o "código de barras") y restricciones colaterales ("artículo industrializado", "importación masiva"), manteniendo sinónimos confusos directos y relevantes para el dominio artesanal.
