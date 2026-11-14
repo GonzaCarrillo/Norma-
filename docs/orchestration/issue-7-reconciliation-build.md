@@ -100,4 +100,11 @@ La conciliación de la **Issue #7 (Fase 2)** ha sido completada conforme a todos
 - 21 evidencias gráficas capturadas en navegador real en `docs/orchestration/issue-7-reconciliation-evidence/builder/`.
 - Construcción y verificación limpia con Microsoft OpenJDK 25.
 
-Queda habilitado el paso a **Fase 3: Auditoría QA por OpenCode / Nemotron**.
+---
+
+## 7. Sincronización de Base Documental (Merge de origin/main 3e974fb)
+
+- **Sincronización**: Se ejecutó `git merge origin/main --no-edit` incorporando la publicación documental y evidencias de cierre de la Issue #4 (`docs/orchestration/issue-4-*.md` e `issue-4-reconciliation-evidence/`).
+- **Acreditación de Integridad**: La comparación `git diff 3fe6308..HEAD -- src pom.xml src/main/resources` certifica **cero diferencias** en código fuente de producción, pruebas y configuración respecto a la entrega de Fase 2 (`3fe6308`).
+- **Correspondencia**: La suite completa (252 tests verdes) y las 21 evidencias gráficas de navegador conservan plena vigencia sobre esta base unificada.
+- **Paso a QA**: El árbol de trabajo queda limpio y sincronizado para la auditoría de Fase 3 por OpenCode / Nemotron.
