@@ -89,7 +89,7 @@ jobs:
           '
 
           # 2. Proponer mutación de precio
-          curl -s -f --max-time 5 -X POST \
+          curl -s -f --max-time 25 -X POST \
             -F "sessionId=$SESS_ID" \
             -F "text=A la número 2 subila a veinte mil pesos" \
             "http://127.0.0.1:$HOST_PORT/api/bot/message" > prop.json
@@ -104,7 +104,7 @@ jobs:
           '
 
           # 3. Cancelar propuesta ("No") y verificar no-mutación
-          curl -s -f --max-time 5 -X POST \
+          curl -s -f --max-time 25 -X POST \
             -F "sessionId=$SESS_ID" \
             -F "text=No" \
             "http://127.0.0.1:$HOST_PORT/api/bot/message" > cancel.json
@@ -130,11 +130,11 @@ jobs:
           '
 
           # 4. Proponer y confirmar mutación ("Sí")
-          curl -s -f --max-time 5 -X POST \
+          curl -s -f --max-time 25 -X POST \
             -F "sessionId=$SESS_ID" \
             -F "text=A la número 2 subila a veinte mil pesos" \
             "http://127.0.0.1:$HOST_PORT/api/bot/message" > prop2.json
-          curl -s -f --max-time 5 -X POST \
+          curl -s -f --max-time 25 -X POST \
             -F "sessionId=$SESS_ID" \
             -F "text=Sí" \
             "http://127.0.0.1:$HOST_PORT/api/bot/message" > confirm.json

@@ -80,3 +80,14 @@ Esta adenda v2.1 formaliza los criterios de corrección aprobados para el despac
 - `docs/orchestration/issue-8-reconciliation-design-v2.1.md` (este documento)
 - `docs/orchestration/issue-8-reconciliation-build.md`
 - `issue-8-reconciliation-evidence/builder/`
+
+---
+
+## 4. Adenda v2.2: Ajuste de Timeout en Peticiones POST Conversacionales en CI
+
+- **Observación arquitectónica de Codex**:
+  En el flujo de CI (`.github/workflows/verify.yml`), las peticiones `POST /api/bot/message` utilizaban `--max-time 5`. No obstante, el backend (`MediaService.speak`) dispone de un tiempo de espera de hasta 12 segundos para la invocación asíncrona de `edge-tts`. En entornos de integración continua o corredores con contención de CPU, un límite de 5 segundos es excesivamente restrictivo y vulnerable a falsos positivos por timeout cliente.
+- **Decisión de diseño v2.2**:
+  - Incrementar el tiempo límite cliente exclusivamente en las cuatro peticiones `POST` a `/api/bot/message` a `--max-time 25`. Este umbral holgado absorbe el tiempo máximo de síntesis de voz (12s), la carga del proceso Python y la respuesta HTTP sobre hilos virtuales de Spring Boot.
+  - Mantener los timeouts estrictos y reducidos en las consultas rápidas de salud (`GET /api/ping`, `--max-time 3`) y catálogo (`GET /api/products`, `--max-time 5`).
+  - No se modifica código de producción, Dockerfile ni pruebas Java; el runtime permanece 100% idéntico al auditado por OpenCode en el commit `62f4115`.

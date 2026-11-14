@@ -173,3 +173,25 @@ Conforme a las directivas de Codex de Fase 4 registradas en `docs/orchestration/
 5. **Preservación Histórica**:
    - El reporte previo de QA en `docs/orchestration/issue-8-reconciliation-qa.md` (commit `b921027`) se mantuvo estrictamente inalterado para garantizar la trazabilidad de auditoría.
 
+---
+
+## 9. Ajuste de Timeout v2.2 en CI y Evidencia de Ejecución
+
+Conforme al requerimiento de Codex v2.2:
+1. **Modificación Específica en `.github/workflows/verify.yml`**:
+   - Se ajustó el parámetro `--max-time 25` exclusivamente en las 4 peticiones `POST` hacia `/api/bot/message` (propuesta inicial, cancelación con `No`, propuesta reiterada y confirmación con `Sí`), otorgando un margen seguro ante el timeout interno de 12 segundos configurado en `MediaService.speak` para la síntesis de voz con `edge-tts`.
+   - Se conservaron intactos los tiempos de espera acotados para las consultas rápidas de salud (`GET /api/ping`, `--max-time 3`) y catálogo (`GET /api/products`, `--max-time 5`).
+2. **Ejecución y Verificación Local**:
+   - Se ejecutó el script de smoke test exactamente alineado contra la imagen limpia existente `norma-issue8-builder:latest` (ID `5074f799ab46`, cuyas fuentes de runtime Java y Docker son idénticas a las aprobadas por QA en `62f4115`).
+   - El resultado fue exitoso con código de salida 0:
+     - Catálogo inicial verificado (8 productos).
+     - Propuesta (`AWAITING_CONFIRMATION`) y cancelación (`IDLE`, $18.500) correctas.
+     - Confirmación exitosa (`IDLE`, $20.000).
+     - Persistencia tras `docker restart` y reasignación de puerto dinámico comprobada ($20.000 intacto).
+     - Persistencia tras recreación con nuevo contenedor y el MISMO volumen comprobada ($20.000 intacto).
+     - Limpieza automática de contenedores y volúmenes de prueba completada sin errores.
+   - El log completo de ejecución quedó registrado en `issue-8-reconciliation-evidence/builder/smoke-ci-v2.2.log`.
+3. **No alteración de componentes Java de producción ni tests**:
+   - No se alteró ningún archivo Java ni Dockerfile, preservando la validez de los 254 tests ejecutados y de los informes previos de QA.
+
+
