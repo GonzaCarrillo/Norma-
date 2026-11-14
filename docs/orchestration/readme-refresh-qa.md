@@ -105,4 +105,69 @@
 
 El README actualizado (`ef3712e`) presenta cuatro defectos técnicos contra el código real (D1–D4) que deben ser corregidos por Antigravity antes de que este informe pueda pasar a QA_APPROVED. Conforme al protocolo, **no se modificó el README, ni código de producción, ni configuración, ni AGENTS.md**; los defectos se reportan a Antigravity para corrección. Tras la corrección, el informe deberá ser reauditado sobre el nuevo SHA y, si todos los criterios se cumplen, emitirse QA_APPROVED para habilitar la Fase 4 de Codex.
 
-**Archivo entregado:** `docs/orchestration/readme-refresh-qa.md` (único archivo del commit).
+---
+## 6. Reauditoría post-corrección — README SHA `60441f6` (dictamen final)
+
+**SHA reauditado (HEAD README corregido):** `60441f6`  
+**Commit builder (Antigravity):** `60441f6 fix(docs): corregir defectos tecnicos de README y adenda build report (QA reaudit)`  
+**SHA base aprobada (diseño Codex v1):** `32118e69f4588690e530ce22c8eb2d8a3b456775`  
+**Alcance:** Reauditoría documental únicamente sobre `README.md` corregido vs `Api.java`, `PhotoProcessor.java`, `BotEngine.java`, `IntentParser.java`, `BotModel.java`, `application.properties`, `compose.yaml`, `Dockerfile`, frontend estático y contrato `docs/orchestration/readme-refresh-design.md`. Se preserva el informe anterior (secciones 1-5) como histórico. No se ejecutó `mvn clean verify` ni `docker compose build` (solo docs). No se modificó README, código de producción, configuración ni AGENTS.md.
+
+### 6.1 Defectos D1–D4 verificados como resueltos
+
+| Defecto | Hallazgo original (ef3712e) | Corrección en 60441f6 | Evidencia código real | Estado |
+|---|---|---|---|---|
+| D1 — Endpoint SSE | README `GET /api/events` (inexistente) | README `GET /api/catalog/stream` | `Api.java:53` `@GetMapping("/api/catalog/stream")`; `app.js:398` `EventSource('/api/catalog/stream')` | RESUELTO |
+| D2 — CREATE imagen | README "imagen opcional" | README "fotografía requerida (la imagen puede enviarse primero o tras indicar los datos...)" | `IntentParser.java:480` `case CREATE -> (title != null && price != null && imageUrl != null)` | RESUELTO |
+| D3 — PNG8 alfa | README "sin canal alfa" | README "PNG (hasta 8 bits por canal: ..., con canal alfa compuesto sobre fondo blanco sólido)" | `PhotoProcessor.java:418-422` admite 8 bits/canal; `494-517` compone alfa sobre `#FFFFFF` | RESUELTO |
+| D4 — ICC rechazado | README rechazo generalizado de ICC (entrada) | README "En la salida, ... rechaza candidatos que retengan bloques de perfil de color (`ICCP`) incrustados" | `PhotoProcessor.java:597-598` rechaza ICCP solo en candidato WebP de salida | RESUELTO |
+
+Nota menor (foco): README L17 `outline: 4px solid #004b75` coincide ahora con `style.css:58` (antes `#7d4420`/`3px`). Corregido.
+
+### 6.2 Matriz de verificación re-verificada (25 criterios + 4 defectos)
+
+Todos los 25 criterios de la sección 2 se mantienen COHERENTE contra el README `60441f6` y el código real; los 4 defectos bloqueantes (D1–D4) quedan resueltos. No se introdujeron nuevos criterios ni dependencias.
+
+| # | Criterio | Resultado | Evidencia |
+|---|---|---|---|
+| 1 | JDK 25 (`java -version`, `JAVA_HOME=/ruta/a/jdk-25`) | COHERENTE | README L119-129; JDK local `/home/gonzalocar/.jdks/ms-25.0.4.1` |
+| 2 | Maven (`mvn -version`, `mvn -B clean verify`) | COHERENTE | README L117, L133 |
+| 3 | JAR `target/taller-1.0.0.jar` | COHERENTE | README L138; Dockerfile L11 |
+| 4 | Docker Compose `docker compose up --build -d` | COHERENTE | README L75; compose.yaml L1 `build: .` |
+| 5 | Healthcheck `/api/ping` y logs | COHERENTE | README L82-88; compose.yaml L11-16; Api.java L23 |
+| 6 | Puerto alternativo `PORT=18080` (solo hostmapping, interior 8080) | COHERENTE | README L94-99; compose.yaml L5; Dockerfile L14 `EXPOSE 8080` |
+| 7 | `docker compose down` conserva volumen; `down -v` destruye `norma-data` | COHERENTE | README L103-110; compose.yaml L9-10 |
+| 8 | Persistencia local cwd (`norma.db`, `uploads/`) | COHERENTE | README L147; application.properties L15, L35 |
+| 9 | `GROQ_API_KEY` sin carga automática de `.env` en `java -jar` | COHERENTE | README L148-152; application.properties L38 |
+| 10 | TTS `edge-tts` opcional en local, incluido en Docker | COHERENTE | README L51, L146; Dockerfile L7 |
+| 11 | STT requiere `GROQ_API_KEY` (Whisper Groq) | COHERENTE | README L49 |
+| 12 | Demos de audio sin STT (MP3 estático + texto fijo) | COHERENTE | README L54 |
+| 13 | Sesiones por origen (`localStorage norma-session`) | COHERENTE | README L38, L199; app.js L9, L12 |
+| 14 | FSM 4 ops (`CREATE`, `PRICE`, `IMAGE`, `SOLD`) | COHERENTE | README L23-27; BotModel.java L25 |
+| 15 | Confirmar / cancelar / undo / reset | COHERENTE | README L28-33; BotEngine.java |
+| 16 | SQLite WAL, pool=1, busy_timeout=5000, synchronous=NORMAL | COHERENTE | README L36; application.properties L19-22 |
+| 17 | Imágenes 800x600, recorte 4:3, fondo #FFFFFF, <80000 bytes | COHERENTE | README L45; PhotoProcessor.java L29-31 |
+| 18 | Límite subida 15 MiB | COHERENTE | README L43; PhotoProcessor.java L25; application.properties L28 |
+| 19 | Eje 16384 px y 24 MP totales | COHERENTE | README L43; PhotoProcessor.java L26-27 |
+| 20 | Accesibilidad: 22 px base, 28.6 px botón, teclado/foco, enlace salto, Web Speech fallback | COHERENTE | README L14-19; style.css L2, L10, L58-59; index.html L12; app.js L44-93 |
+| 21 | Enlaces relativos resuelven | COHERENTE | docs/decisiones.md, operacion.md, medios.md, backlog.json, readme-refresh-design.md existen |
+| 22 | CI Run #43547782533 vs SHA 32118e6 y 254 pruebas como evidencia histórica | COHERENTE (histórico, no re-ejecutado) | README L210-212 |
+| 23 | No prometer hosting / seguridad admin / WhatsApp / AAA / SLA | COHERENTE | README L56-61 |
+| 24 | No credenciales en ejemplos | COHERENTE | README L150 (`gsk_...` placeholder) |
+| 25 | `http://localhost` sin TLS válido para desarrollo local | COHERENTE | README L88, L92, L143; honesto sobre proxy TLS en producción (L60) |
+| D1-D4 | 4 defectos bloqueantes resueltos | RESUELTO | Ver tabla 6.1 |
+
+### 6.3 Limitaciones (reafirmadas)
+
+- Validación documental únicamente; no se ejecutó `mvn -B clean verify` ni la suite de 254 pruebas ni build de Docker (solo docs, sin cambio ejecutable).
+- No se construyó ni ejecutó el contenedor Docker (comparación estática contra `compose.yaml` y `Dockerfile`).
+- Enlaces externos a GitHub Actions (Run #43547782533) y commit SHA `32118e6` citados como evidencia histórica declarada; no re-validados remotamente desde worktree aislado.
+- Accesibilidad (WCAG, lectores de pantalla) no ejecutada; el README declara honestamente que no certifica WCAG AAA universal.
+
+### 6.4 Dictamen final
+
+`QA_APPROVED`.
+
+El README corregido (SHA `60441f6`) elimina los cuatro defectos técnicos bloqueantes (D1–D4) identificados en la auditoría anterior sobre `ef3712e`, y los 25 criterios documentales se verifican coherentes contra el código y la configuración reales, así como contra el contrato `docs/orchestration/readme-refresh-design.md`. Con todos los criterios comprobados y sin evidencias obligatorias ausentes, se emite QA_APPROVED, habilitando la Fase 4 de Codex sobre este informe.
+
+**Archivo entregado:** `docs/orchestration/readme-refresh-qa.md` (único archivo del commit; informe histórico preservado en secciones 1-5, reauditoría en sección 6).
