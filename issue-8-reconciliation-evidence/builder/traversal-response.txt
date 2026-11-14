@@ -1,0 +1,11 @@
+HTTP/1.1 500 
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Content-Disposition: inline;filename=f.txt
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 14 Nov 2026 01:28:48 GMT
+Connection: close
+
+{"message":"No pude completar el pedido. Intentá otra vez."}

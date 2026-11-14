@@ -1,0 +1,42 @@
+name: reconcile-8-deployment
+services:
+  taller:
+    build:
+      context: /home/gonzalocar/orca/workspaces/Norma-/reconcile-8-deployment
+      dockerfile: Dockerfile
+    environment:
+      GROQ_API_KEY: ""
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8080/api/ping',timeout=3)
+      timeout: 5s
+      interval: 30s
+      retries: 3
+      start_period: 30s
+    image: norma-issue8-builder:latest
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8080
+        published: "8080"
+        protocol: tcp
+      - mode: ingress
+        target: 8080
+        published: "18286"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: norma-issue8-qa-data
+        target: /data
+        volume: {}
+networks:
+  default:
+    name: reconcile-8-deployment_default
+volumes:
+  norma-issue8-qa-data:
+    name: reconcile-8-deployment_norma-issue8-qa-data

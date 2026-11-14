@@ -3,3 +3,7 @@ target
 uploads
 *.db*
 .env
+.agents
+docs
+issue-*
+*.log

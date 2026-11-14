@@ -1,0 +1,77 @@
+[
+    {
+        "Id": "sha256:5074f799ab469cf8da6d719095acf964b63bbc8224990d1f02b42ed336b6d803",
+        "RepoTags": [
+            "norma-issue8-builder:latest"
+        ],
+        "RepoDigests": [
+            "norma-issue8-builder@sha256:5074f799ab469cf8da6d719095acf964b63bbc8224990d1f02b42ed336b6d803"
+        ],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-11-13T22:25:38.229892212-03:00",
+        "Config": {
+            "User": "norma",
+            "ExposedPorts": {
+                "8080/tcp": {}
+            },
+            "Env": [
+                "PATH=/opt/voice/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk",
+                "LANG=en_US.UTF-8",
+                "LANGUAGE=en_US:en",
+                "LC_ALL=en_US.UTF-8",
+                "JAVA_VERSION=jdk-25.0.5+8",
+                "NORMA_DB=/data/norma.db",
+                "NORMA_UPLOADS=/data/uploads"
+            ],
+            "Entrypoint": [
+                "java",
+                "--enable-native-access=ALL-UNNAMED",
+                "-XX:+UseCompactObjectHeaders",
+                "-Xmx384m",
+                "-jar",
+                "app.jar"
+            ],
+            "Volumes": {
+                "/data": {}
+            },
+            "WorkingDir": "/app",
+            "Labels": {
+                "org.opencontainers.image.version": "24.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 604064976,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:21210938f5a37a9887b2d0a20428917b923a636ca6efe038c3c7d9cd9f1f9b61",
+                "sha256:2d7e671fc68db9b338ec4d599332c13afdc197d61ecca26513fae580ad8ce8e4",
+                "sha256:4b9f77741099ef6cd13144bf9090f0549bcf20c29ffee6ad41bb3b5a595405f8",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:c00f21a5a70db94938c15f8db1859a444da0c1bd56fab7e7baf86ce332ef3e13",
+                "sha256:5c476569fff7554903d55e64415f53a2b666a9394a94bbd3cb6fa3ceeb7974a7",
+                "sha256:a540b22c1e59046a1735ad00c127b27ce996649783d9e7ac15ff1b21b233df19",
+                "sha256:eaefc791143aff2359f7374f8e9e5dd58e69eaf712c10029b45c4f6ab4ec9b45",
+                "sha256:faeeaf3565c8fdadbb3d10befe68ea2596f253a77e48e876e426e96620f94a0e"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-11-14T01:25:49.558185334Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "digest": "sha256:5074f799ab469cf8da6d719095acf964b63bbc8224990d1f02b42ed336b6d803",
+            "size": 856
+        },
+        "Identity": {
+            "Build": [
+                {
+                    "Ref": "9poosj99c0q5gm95d2b5ibo55",
+                    "CreatedAt": "2026-11-13T22:25:59.971078658-03:00"
+                }
+            ]
+        }
+    }
+]

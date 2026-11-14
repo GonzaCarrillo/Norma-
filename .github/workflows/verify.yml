@@ -12,5 +12,32 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
-      - run: mvn -B verify
-      - run: docker build -t norma:verificada .
+      - name: Compilación y pruebas completas
+        run: mvn -B verify
+      - name: Construcción de imagen Docker
+        run: docker build -t norma:verificada .
+      - name: Smoke test de contenedor y persistencia
+        run: |
+          docker volume create norma-ci-smoke-data
+          docker run -d --name norma-ci-smoke -p 18080:8080 -v norma-ci-smoke-data:/data norma:verificada
+          for i in {1..30}; do
+            if curl -s -f http://localhost:18080/api/ping | grep -q "PONG"; then
+              echo "Contenedor saludable (/api/ping respondiendo PONG)"
+              break
+            fi
+            sleep 1
+          done
+          curl -s -f http://localhost:18080/api/ping | grep "PONG"
+          curl -s -f "http://localhost:18080/api/products?sessionId=ci-session" | grep -q "Torneado"
+          docker restart norma-ci-smoke
+          for i in {1..15}; do
+            if curl -s -f http://localhost:18080/api/ping | grep -q "PONG"; then
+              echo "Contenedor reiniciado saludable"
+              break
+            fi
+            sleep 1
+          done
+          curl -s -f "http://localhost:18080/api/products?sessionId=ci-session" | grep -q "Torneado"
+          docker stop norma-ci-smoke
+          docker rm norma-ci-smoke
+          docker volume rm norma-ci-smoke-data

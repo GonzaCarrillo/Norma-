@@ -1,0 +1,2 @@
+REPOSITORY             TAG       IMAGE ID                                                                  CREATED         SIZE
+norma-issue8-builder   latest    sha256:5074f799ab469cf8da6d719095acf964b63bbc8224990d1f02b42ed336b6d803   3 minutes ago   604MB

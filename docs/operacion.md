@@ -36,3 +36,33 @@ No hay destino público configurado. La receta Docker prepara el despliegue, no 
 - **Serving Seguro y Prevención de Traversal**: Las imágenes publicadas se sirven públicamente a través de `/media/**` con cabecera `Content-Type: image/webp` y control de caché `Cache-Control: public, max-age=86400`. Cualquier intento de path traversal (`..`), solicitud de archivos dentro de `.processing/`, enlaces simbólicos hacia fuera o archivos inexistentes es interceptado y responde HTTP 404 genérico ("No encontré ese archivo.") sin exponer rutas internas ni fugas de infraestructura.
 - **Política de Limpieza y Durabilidad**: En caso de error o éxito, el bloque `finally` del procesador elimina rigurosamente los temporales de entrada y candidatos generados durante la llamada en curso. Los archivos ya publicados en `<norma.uploads>/` no son eliminados automáticamente por el procesador, preservando la estabilidad referencial de catálogos y snapshots de reversión (`undo`).
 
+## Operación de Despliegue y Contenedorización (Issue #8)
+- **Estructura Multi-Etapa de la Imagen Docker**:
+  - Etapa 1 (`build`): basada en `maven:3.9-eclipse-temurin-25`, compila y ejecuta la verificación completa con `mvn -B verify` a partir de `pom.xml` y `src/`, generando `target/taller-1.0.0.jar`.
+  - Etapa 2 (runtime): basada en `eclipse-temurin:25-jre-noble` (Ubuntu 24.04 LTS), instala `libwebp7` y aprovisiona un entorno virtual Python (`/opt/voice`) con `edge-tts==7.3.1`.
+- **Seguridad y Usuario No-Root**:
+  - Se crea un usuario del sistema `norma` con UID/GID numérico 10001 (`useradd -r -u 10001 norma`).
+  - El directorio de datos `/data` se crea y asigna en propiedad a dicho usuario antes de la directiva `USER norma`.
+  - El binario se ejecuta como usuario no privilegiado 10001, sin permisos de superusuario ni capacidades adicionales.
+- **Volumen Persistente y Almacenamiento**:
+  - La directiva `VOLUME /data` y las variables de entorno `NORMA_DB=/data/norma.db` y `NORMA_UPLOADS=/data/uploads` redirigen toda persistencia al volumen nombrado (`norma-data:/data`).
+  - Al crearse el volumen nombrado, Docker inicializa la propiedad del directorio `/data` con los permisos del contenedor (usuario 10001 `norma`).
+  - Tanto la base de datos relacional SQLite (en modo WAL con archivos `-wal` y `-shm`) como las imágenes WebP procesadas sobreviven de forma transparente a reinicios (`docker restart`) y a la recreación o actualización de contenedores (`docker rm` + `docker run`) siempre que se monte el mismo volumen nombrado.
+- **Flags de Optimización JVM**:
+  - `ENTRYPOINT ["java","--enable-native-access=ALL-UNNAMED","-XX:+UseCompactObjectHeaders","-Xmx384m","-jar","app.jar"]`.
+  - `--enable-native-access=ALL-UNNAMED`: requerido para llamadas a SQLite JDBC Loader en JDK 25 sin advertencias terminales.
+  - `-XX:+UseCompactObjectHeaders`: reduce la huella de memoria en 64-bit JVM.
+  - `-Xmx384m`: tope de heap acotado para despliegue ligero en entornos con recursos controlados.
+- **Orquestación con Docker Compose**:
+  - `compose.yaml` estandariza el servicio `taller`, mapeando el puerto configurable `${PORT:-8080}:8080`, asociando el volumen `norma-data:/data`, reinicio automático `unless-stopped` y comprobación de salud continua `healthcheck` mediante sondeo HTTP (`/api/ping`) con intervalo de 30s y tiempo límite de 5s.
+  - Para pruebas o entornos QA concurrentes, se debe emplear un override de Compose (`-f compose.yaml -f target/docker-compose.qa.yml`) con un nombre de proyecto aislado (`-p norma-qa`) y puerto libre distinto al 8080 estándar para evitar colisiones.
+- **Procedimiento de Backup del Contenedor**:
+  - Detener el contenedor del monolito: `docker compose stop`.
+  - Ejecutar un volcado consistente del volumen:
+    `docker run --rm -v norma-data:/data -v $(pwd)/backups:/backup ubuntu:24.04 tar czf /backup/norma-backup-$(date +%Y%m%d%H%M%S).tar.gz -C /data .`
+  - Reanudar el contenedor: `docker compose start`.
+- **Límites Reales**:
+  - No exponer el contenedor a redes públicas sin un proxy TLS inverso (Nginx, Caddy o Traefik) con terminación SSL, ya que la API de micrófono del navegador requiere HTTPS en cualquier origen distinto de `localhost`.
+  - El monolito asume instancia única por archivo de datos SQLite (`maximum-pool-size=1`). No conectar múltiples réplicas concurrentes al mismo archivo de volumen.
+
+
