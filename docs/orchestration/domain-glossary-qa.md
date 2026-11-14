@@ -84,3 +84,52 @@ Por alcance de la issue, **no se repiten las 254 pruebas ni se ejecuta Docker/Ma
 `GLOSSARY.md` (commit `6a21cca`) es consistente con el modelo real de dominio (`BotModel`/`Catalog`/`BotEngine`, `schema.sql`, `seed.sql`): respeta el formato de contexto breve (1-2 frases), definición de negocio y `_Avoid_:` solo sinónimos confusos; no contiene clases/SQL/HTTP/SDK/tecnología; y modela correctamente catálogo con vendidas vs vidriera solo disponibles, número único por sesión no reciclado tras reset/undo, sesión distinta de usuario autenticado/pestaña, borrador incompleto vs propuesta completa con confirmación explícita, cancelación que no revierte publicado, deshacer de un paso, reset que limpia pending/snapshot sin reciclar números, imagen obligatoria en alta, vendida no eliminada y ejemplos sin audio/STT real. Los cuatro casos de borde (vender→deshacer, proponer→cancelar, reset→alta, dos pestañas) están correctamente documentados y son consistentes con el código.
 
 No se modifica `GLOSSARY.md`, el reporte de build, código, configuración ni `.idea`; el único archivo escrito es este informe.
+
+---
+
+## 8. Adenda: Reauditoría Documental sobre Commit `73eed9e`
+
+**SHA reauditado:** `73eed9e` — `docs: calibrar definiciones de dominio y evitar garantias facticas en GLOSSARY`  
+**SHA base previa:** `6a21cca` (informe QA `b5ef23b`)  
+**Rama:** `GonzaCarrillo/domain-glossary`  
+**Fecha:** 14 de Noviembre de 2026  
+**Rol:** OpenCode / Nemotron — QA & Test Auditor (Fase 3) — reauditoría documental  
+**Archivo modificado verificado (solo lectura):** `GLOSSARY.md`  
+**Único archivo de escritura:** `docs/orchestration/domain-glossary-qa.md` (este informe, adenda)
+
+### 8.1 Observaciones de Codex Fase 4 recibidas
+
+El Builder aplicó los ajustes pautados por Codex sobre el commit `6a21cca` para evitar asunciones fácticas no verificadas y restricciones inventadas:
+
+1. **Pieza**: elimina "creada manualmente por Norma" y "fabricación única"; define "unidad artesanal representada e identificada dentro del catálogo de una sesión de evaluación" sin afirmar autoría exclusiva, stock físico real ni unicidad de fabricación.
+2. **Pieza vendida / Registro de venta**: sustituye "catálogo histórico / registros históricos permanentes" por "permanece en el catálogo actual de la sesión... puede ser sustituida o revertida ante una restauración del catálogo o una acción de deshacer".
+3. **Cambio de fotografía**: elimina "no altera el historial del objeto"; especifica que conserva identidad, número de pieza, título y precio, sin generar nueva pieza ni sustituirla.
+4. **Confirmación**: reemplaza "aplicación definitiva" por "aplicación confirmada" y añade que "manteniéndose disponible la posibilidad de deshacer el cambio".
+5. **`_Avoid_`**: elimina tecnicismos innecesarios ("ID de base de datos", "código de barras") y restricciones colaterales ("artículo industrializado", "importación masiva"); mantiene sinónimos confusos directos del dominio.
+
+### 8.2 Contraste con el modelo real (lectura estática, sin suite de 254 pruebas ni Docker)
+
+- **Pieza sin autoría/exclusividad/unicidad física**: `Catalog.Product` es `(id, sessionId, pieceNumber, title, price, imageUrl, sold)` sin campo de autoría; `piece_number` es `UNIQUE(session_id, piece_number)` solo dentro de la sesión, nunca global; el código no impone unicidad de título ni certifica fabricación única. Coherente con la definición calibrada. PASS.
+- **Vendida en catálogo actual, no historial permanente**: `BotModel.Sell` / `Catalog.apply("SOLD")` marca `sold=1` sin borrar la fila; `Catalog.all(id)` devuelve disponibles y vendidas; la vidriera filtra `sold == false`. `Undo` (consumiendo el snapshot de un paso) y `reset`/`restore` pueden revertir o reemplazar el catálogo, por lo que no hay registro histórico indeleble. Coherente. PASS.
+- **Cambio de fotografía preserva identidad/número/título/precio, sin historial**: `Catalog.apply("IMAGE")` actualiza solo `image_url` donde `piece_number` coincide; no modifica título, precio ni número, y no crea fila nueva. El glosario elimina la garantía de "no altera historial", ajustándose al hecho de que la confirmación genera un `snapshot` de sesión. Coherente. PASS.
+- **Confirmación aplicada confirmada, con deshacer de un paso disponible**: `BotEngine.executeConfirmation` toma `snapshot` del estado actual, ejecuta `Catalog.apply` de forma atómica y vuelve a `IDLE`; `BotModel.Control.Undo` restaura ese snapshot y lo consume (un solo paso, sin historial acumulativo). La operación queda aplicada confirmadamente y revertible únicamente por `Deshacer`. Coherente con "aplicación confirmada" y "disponible posibilidad de deshacer". PASS.
+- **`_Avoid_` sin tecnicismos ni restricciones inventadas**: las cláusulas `_Avoid_:` usan solo sinónimos confusos del dominio artesanal (producto genérico, pieza eliminada, cobro, pasarela de pago, operador autónomo, audio real, etc.); no hay referencias a SQL, HTTP, clases, `record`, `enum`, infraestructura ni ADR. Coherente. PASS.
+
+### 8.3 Elementos preservados de la auditoría previa (YA QA)
+
+Se mantienen sin modificación los hallazgos ya aprobados sobre `6a21cca`: catálogo con vendidas vs vidriera solo disponibles; número único por sesión no reciclado tras reset/undo (`UNIQUE(session_id, piece_number)`, `reset` conserva `max(next_number, 9)`, `restore` conserva high-water mark); sesión de evaluación distinta de usuario autenticado/pestaña (`valid(id)` alfanumérico 8-80, sin login); borrador incompleto vs propuesta completa con confirmación explícita; cancelación que no revierte cambios confirmados; deshacer de un paso; reset que limpia `pending`/`temp_image`/`snapshot` sin reiniciar numeración; imagen obligatoria en alta; ejemplo de demostración sin STT/voz real; y los cuatro casos de borde (vender→deshacer, proponer→cancelar, reset→alta, dos pestañas ≠ dos sesiones).
+
+### 8.4 Limitaciones de esta reauditoría
+
+- Reauditoría documental y de consistencia sobre código leído estáticamente; no se repiten las 254 pruebas ni se ejecuta Docker/Maven (fuera del alcance de la issue).
+- El JDK local observado es 21, no el 25 referenciado en la skill de QA; no afecta la validez del contraste documental.
+
+---
+
+## 9. Dictamen Actualizado
+
+**QA_APPROVED sobre commit `73eed9e`**
+
+`GLOSSARY.md` en `73eed9e` incorpora correctamente las correcciones de Codex Fase 4: elimina garantías fácticas no verificadas (autoría exclusiva de Norma, unicidad de fabricación, historial permanente de vendidas, inalterabilidad del historial en cambio de foto, "aplicación definitiva" sin posibilidad de reversión) y evita `_Avoid_` con tecnicismos o restricciones inventadas. Cada definición calibrada es consistente con el modelo real (`BotModel`/`Catalog`/`BotEngine`, `schema.sql`, `seed.sql`): catálogo con vendidas vs vidriera solo disponibles, número único por sesión no reciclado, sesión ≠ usuario autenticado/pestaña, borrador vs propuesta con confirmación explícita, cancelación sin revertir publicado, deshacer de un paso, reset sin reciclar números, imagen obligatoria en alta, vendida no eliminada y ejemplos sin STT real. Se preservan cancelación, deshacer, restauración de sesión, numeración y los cuatro casos de borde ya auditados.
+
+No se modifica `GLOSSARY.md`, el reporte de build, código, configuración, README, `AGENTS.md` ni `.idea`; el único archivo escrito es este informe, con la adenda para `73eed9e`. Listo para la aprobación final de Codex (Fase 4).
