@@ -147,3 +147,29 @@ Todos los artefactos generados durante la verificación en contenedor real fuero
 - `catalog-recreated-a.json`, `catalog-recreated-b.json` y `media-recreated.txt`: persistencia post-recreación.
 - `docker-compose-qa-config.txt`, `compose-user-id.txt` y `compose-ping-response.txt`: validación de Compose QA bajo `target/`.
 - `com.norma.taller.DeploymentSmokeTest.txt` y `TEST-com.norma.taller.DeploymentSmokeTest.xml`: reportes JUnit de pruebas de despliegue.
+
+---
+
+## 8. Resolución de Hallazgos Codex v2.1 (Fase 2 Correctiva)
+
+Conforme a las directivas de Codex de Fase 4 registradas en `docs/orchestration/issue-8-reconciliation-design-v2.1.md`:
+
+1. **Aislamiento en `DeploymentSmokeTest.java`**:
+   - Se refactorizó la prueba de integración con `@TempDir static Path tempUploads` y `@DynamicPropertySource` inyectando `norma.uploads` al directorio temporal y `groq.api.key=""`.
+   - Se ejecutó `mvn test -Dtest=DeploymentSmokeTest` pasando exitosamente (2/2 tests en 12.68s) sin depender de variables del sistema anfitrión ni crear residuos en el directorio de trabajo.
+2. **Corrección Integral del Smoke Test de CI (`verify.yml`)**:
+   - Sustitución de `grep` sobre cadenas arbitrarias por análisis JSON estructurado con `python3`, comprobando los 8 productos y sus campos esenciales (`pieceNumber`, `title`, `price`, `imageUrl`, `sold`).
+   - Verificación de ciclo conversacional completo: propuesta de mutación de precio (`AWAITING_CONFIRMATION`), cancelación con `No` (`IDLE` y preservación de $18.500) y confirmación con `Sí` (`IDLE` y mutación a $20.000).
+   - Verificación estricta de persistencia de datos mutados tras `docker restart` y tras recreación de contenedor con nuevo ID sobre el MISMO volumen.
+   - Manejo de puerto dinámico con `-p 0:8080`, re-evaluando el puerto host tras el reinicio del demonio Docker.
+   - Limpieza automática con `trap cleanup EXIT` que volca logs ante fallos y elimina exclusivamente contenedores y volúmenes de prueba sin ejecutar `docker prune`.
+   - Script probado localmente en su totalidad (`target/test-ci-smoke.sh`) con resultado PASS exitoso.
+3. **Procedimiento Determinista de Backup en `docs/operacion.md`**:
+   - Sustitución de la receta previa (basada en el nombre no calificado `norma-data` que podía generar copias vacías por los prefijos de Compose) por el procedimiento recomendado:
+     `docker compose stop taller` → `docker compose cp taller:/data <directorio-backup>` → `docker compose start taller`.
+   - Inclusión de verificación de contenido (`norma.db` y `uploads/`) antes de su uso y alternativa mediante inspección de montaje con `docker inspect`.
+4. **Corrección de Identificador de Grupo (GID)**:
+   - Se ajustó la documentación técnica a `UID 10001 / GID observado 999 (norma)`, señalando que `Dockerfile` no fija un GID estricto con `-g`, evitando promesas falsas de estabilidad de GID entre diferentes versiones de imágenes base.
+5. **Preservación Histórica**:
+   - El reporte previo de QA en `docs/orchestration/issue-8-reconciliation-qa.md` (commit `b921027`) se mantuvo estrictamente inalterado para garantizar la trazabilidad de auditoría.
+

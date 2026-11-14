@@ -43,7 +43,7 @@ Catálogo accesible y simulador conversacional sin credenciales. Java 25, Spring
    docker compose ps
    curl http://localhost:8080/api/ping
    ```
-   El contenedor ejecuta como usuario no-root (`norma`, UID 10001), persiste la base de datos y los medios en el volumen nombrado `norma-data:/data`, y valida salud periódica mediante healthcheck HTTP.
+   El contenedor ejecuta como usuario no-root (`norma`, UID 10001 / GID observado 999), persiste la base de datos y los medios en el volumen nombrado `norma-data:/data`, y valida salud periódica mediante healthcheck HTTP.
 3. **Detener el servicio:**
    ```bash
    docker compose down
@@ -91,7 +91,7 @@ Una sola vidriera de lectura, sin carrito, pagos ni enlaces a WhatsApp. Las modi
 - **Base Java 25 / Monolito verificado**: Compilación estricta en bytecode major 69 (Java 25), Spring Boot 3.5.16, endpoint de comprobación `GET /api/ping` (`PONG`), inicio sin claves requeridas.
 - **Despliegue reproducible con Docker**:
   - Contenedor multi-etapa: etapa 1 con Maven 3.9 y JDK 25 Temurin (`mvn -B verify`); etapa 2 con JRE 25 Temurin sobre Ubuntu 24.04 Noble, `libwebp7`, entorno virtual Python con `edge-tts==7.3.1`.
-  - Seguridad y permisos: usuario del sistema no-root `norma` (UID 10001), volumen `/data` propiedad de `norma` conteniendo `norma.db` y `uploads/`.
+  - Seguridad y permisos: usuario del sistema no-root `norma` (UID 10001 / GID observado 999), volumen `/data` propiedad de `norma` conteniendo `norma.db` y `uploads/`.
   - Flags de ejecución: `--enable-native-access=ALL-UNNAMED`, `-XX:+UseCompactObjectHeaders`, `-Xmx384m`.
   - Orquestación con `compose.yaml`: mapeo de puerto configurable `${PORT:-8080}:8080`, variable `GROQ_API_KEY` opcional, volumen persistente `norma-data:/data`, healthcheck integrado mediante sondeo HTTP sobre `/api/ping`.
 - **Trazabilidad y reproducibilidad**:
