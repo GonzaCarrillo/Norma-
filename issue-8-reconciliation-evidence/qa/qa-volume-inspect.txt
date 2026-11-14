@@ -1,0 +1,1 @@
+norma-issue8-qa-data /var/lib/docker/volumes/norma-issue8-qa-data/_data

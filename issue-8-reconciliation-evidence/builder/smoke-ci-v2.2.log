@@ -1,0 +1,24 @@
+norma-ci-vol-local-test-5025
+659ae9dffb6a4b0017762c0fc20af5dcd35ef3c6edb1ba47eb9677baa6360307
+Contenedor iniciado en puerto host dinámico: 32781
+Contenedor listo en el intento 20
+Catálogo inicial verificado con 8 productos válidos
+Propuesta de mutación validada en estado AWAITING_CONFIRMATION
+Cancelación procesada exitosamente
+Precio conservado en 18500 tras cancelación
+Confirmación procesada exitosamente
+Precio mutado a 20000 confirmado en catálogo
+norma-ci-smoke-local-test-5025
+Puerto dinámico tras restart: 32782
+Contenedor reiniciado listo en el intento 23
+Persistencia de datos mutados (20000) verificada tras restart
+norma-ci-smoke-local-test-5025
+norma-ci-smoke-local-test-5025
+48d3df1f8a45c3cde0c5fdb81edbd8171842f7e42e2e4a1a14a67454e8d0a5d2
+Contenedor recreado listo en el intento 18
+Persistencia de datos mutados (20000) verificada tras recreación con el MISMO volumen
+Smoke test de contenedor y persistencia en CI completado con éxito.
+Ejecutando limpieza CI (código de salida: 0)...
+norma-ci-recreated-local-test-5025
+norma-ci-recreated-local-test-5025
+norma-ci-vol-local-test-5025

@@ -19,6 +19,8 @@ Catálogo accesible y simulador conversacional sin credenciales. Java 25, Spring
 
 ## Compilación y ejecución
 
+### Ejecución local (JAR empaquetado)
+
 1. **Compilar y verificar:**
    ```bash
    mvn -B verify
@@ -29,6 +31,23 @@ Catálogo accesible y simulador conversacional sin credenciales. Java 25, Spring
    ```
 3. **Acceder a la aplicación:**
    Abrir http://localhost:8080 en el navegador o comprobar `GET /api/ping`.
+
+### Ejecución en contenedor (Docker / Docker Compose)
+
+1. **Construir y levantar el contenedor:**
+   ```bash
+   docker compose up --build -d
+   ```
+2. **Verificar estado y salud del contenedor:**
+   ```bash
+   docker compose ps
+   curl http://localhost:8080/api/ping
+   ```
+   El contenedor ejecuta como usuario no-root (`norma`, UID 10001 / GID observado 999), persiste la base de datos y los medios en el volumen nombrado `norma-data:/data`, y valida salud periódica mediante healthcheck HTTP.
+3. **Detener el servicio:**
+   ```bash
+   docker compose down
+   ```
 
 ## Configuración externa
 
@@ -66,15 +85,23 @@ Para una **misma propiedad efectiva**, el orden de precedencia estándar de Spri
 
 Una sola vidriera de lectura, sin carrito, pagos ni enlaces a WhatsApp. Las modificaciones requieren confirmación; cada evaluador tiene una sesión independiente. Fotos originales, nunca arte generado por IA. Precios enteros argentinos, números de pieza estables, texto mínimo 22 px y controles accesibles.
 
-## Alcance y límites de esta entrega (Issue #1)
+## Alcance y límites de entrega (Monolito verificado y Despliegue reproducible — Issue #8)
 
 - Las dos especificaciones de la raíz (`arquitectura_y_especificaci_n_el_taller_de_norma.md` y `especificaci_n_t_cnica_y_stack_java_25.md`) son la fuente de requisitos del sistema.
-- **Base Java 25 / Monolito verificado**: Compilación estricta en bytecode 69 (Java 25), Spring Boot 3.5.16, endpoint de comprobación `GET /api/ping` (`PONG`), inicio sin claves requeridas.
-- **Trazabilidad y reproducibilidad de pruebas**:
-  - En el **árbol de trabajo local** con cambios previos no auditados se verificaron 6 pruebas (4 de `FlowTest` versionadas y 2 de `ApiTest` sin seguimiento), y el JAR del árbol incluyó la clase sin seguimiento `IntentFallback`.
-  - En una **exportación aislada y limpia** de los archivos estrictamente versionados del commit (`git archive`) se ejecutaron y aprobaron las 4 pruebas de `FlowTest` versionadas (`Tests run: 4, Failures: 0, Errors: 0, Skipped: 0`), sin clases sin seguimiento en su JAR, generando bytecode major 69 y superando los smoke tests aislados de ping, archivo externo, precedencia CLI y rechazo de puerto inválido.
-- **Sandbox público**: El identificador de sesión compartida no es un mecanismo de autenticación tradicional ni provee control de acceso administrativo de producción.
-- **Funcionalidades de fases futuras**: Las capacidades de catálogo (#2), FSM conversacional (#3), procesamiento de imágenes (#4), transcripción y audio (#5), interfaz web SSE (#6), simulador sin credenciales (#7) y Docker / despliegue (#8) corresponden a issues posteriores y no forman parte de las garantías de esta issue #1. No se garantizan tiempos de respuesta universales ni cold start de 0 ms sin infraestructura dedicada.
+- **Base Java 25 / Monolito verificado**: Compilación estricta en bytecode major 69 (Java 25), Spring Boot 3.5.16, endpoint de comprobación `GET /api/ping` (`PONG`), inicio sin claves requeridas.
+- **Despliegue reproducible con Docker**:
+  - Contenedor multi-etapa: etapa 1 con Maven 3.9 y JDK 25 Temurin (`mvn -B verify`); etapa 2 con JRE 25 Temurin sobre Ubuntu 24.04 Noble, `libwebp7`, entorno virtual Python con `edge-tts==7.3.1`.
+  - Seguridad y permisos: usuario del sistema no-root `norma` (UID 10001 / GID observado 999), volumen `/data` propiedad de `norma` conteniendo `norma.db` y `uploads/`.
+  - Flags de ejecución: `--enable-native-access=ALL-UNNAMED`, `-XX:+UseCompactObjectHeaders`, `-Xmx384m`.
+  - Orquestación con `compose.yaml`: mapeo de puerto configurable `${PORT:-8080}:8080`, variable `GROQ_API_KEY` opcional, volumen persistente `norma-data:/data`, healthcheck integrado mediante sondeo HTTP sobre `/api/ping`.
+- **Trazabilidad y reproducibilidad**:
+  - Suite automatizada integral de 254 pruebas JUnit 5 / MockMvc / Spring Boot Test con 0 fallos.
+  - Verificación comprobada de persistencia SQLite y archivos de medios WebP tras reinicio y recreación de contenedores sobre el mismo volumen.
+  - Aislamiento multi-sesión verificado entre sesiones de evaluación independientes.
+- **Límites reales y advertencias operativas**:
+  - Sandbox de demostración: no provee autenticación de usuarios administrativos ni integración con endpoints de Meta WhatsApp Business API sin aprovisionamiento de credenciales y número habilitado.
+  - La síntesis de voz utiliza `edge-tts` o Web Speech API en navegador; los ejemplos tienen transcripción conocida.
+  - No se garantiza un SLA universal de baja latencia ni se afirma disponibilidad de despliegue público sin infraestructura aprovisionada por el operador.
 
 Documentación de arquitectura y decisiones: [docs/decisiones.md](docs/decisiones.md).
 Backlog de seguimiento: [docs/backlog.json](docs/backlog.json).

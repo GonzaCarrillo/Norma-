@@ -1,0 +1,7 @@
+total 76
+drwxr-xr-x 3 norma root   4096 Nov 14 01:29 .
+drwxr-xr-x 1 root  root   4096 Nov 14 01:28 ..
+-rw-r--r-- 1 norma norma 24576 Nov 14 01:28 norma.db
+-rw-r--r-- 1 norma norma 32768 Nov 14 01:29 norma.db-shm
+-rw-r--r-- 1 norma norma  4152 Nov 14 01:29 norma.db-wal
+drwxr-xr-x 3 norma norma  4096 Nov 14 01:28 uploads
