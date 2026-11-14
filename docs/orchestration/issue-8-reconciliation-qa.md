@@ -1,24 +1,25 @@
-# Informe de Auditoría QA Independiente (Fase 3) — Issue #8: Conciliación Verificación Integral y Despliegue Reproducible
+# Informe de Re-Auditoría QA Independiente (Fase 3) — Issue #8: Corrección Codex v2.1
 
 **Dictamen**: QA_APPROVED  
 **Auditor**: OpenCode / Nemotron (Fase 3 QA & Test Auditor)  
 **Fecha**: 13 de Noviembre de 2026  
 **Rama de trabajo**: `GonzaCarrillo/reconcile-8-deployment`  
 **Worktree**: `/home/gonzalocar/orca/workspaces/Norma-/reconcile-8-deployment`  
-**SHA auditado**: `0348d125367903c3a4cedd5a43f85f3ee4a35d9d` (HEAD, commit `feat(#8): implementar verificación integral, contratos y despliegue reproducible Docker v2`)  
-**Base unificada (diseño)**: `cbe9d31` (Issues #4, #5, #6 y #7 cerradas, 252 tests)  
-**Diseño de referencia**: `docs/orchestration/issue-8-reconciliation-design-v2.md` (Codex v2, aprobado para despacho Fase 2)  
-**Estado del checkout**: `git status --short` limpio (sin archivos sin seguimiento incorporados a la exportación)
+**SHA re-auditado**: `10f50540d4cf53ec937d86fac2cbe9c606ecb700` (HEAD, commit `fix(#8): corregir hallazgos Codex v2.1 en smoke test CI, backup determinista y aislamiento`)  
+**Base anterior**: `b921027` (QA Fase 3 QA_APPROVED sobre `0348d12`, preservado sin modificar)  
+**Diseño de referencia**: `docs/orchestration/issue-8-reconciliation-design-v2.1.md` (Codex v2.1, aprobado para despacho Fase 2 correctiva / Re-QA)  
+**Estado del checkout**: `git status --short` limpio
 
 ---
 
 ## 1. Alcance y reglas aplicadas
 
-- Auditoría de Fase 3 únicamente: build, suite completa de pruebas, regresión y validación de casos borde sobre el commit entregado por Antigravity. No se modificó producción, tests, contratos, esquemas ni configuración de builder.
-- No se infiere "CI verde" por la mera existencia de `.github/workflows/verify.yml`; se verificó localmente.
-- Escritura restringida a `docs/orchestration/issue-8-reconciliation-qa.md`, `issue-8-reconciliation-evidence/qa/` y `target/` (propio). No se tocó `docs/operacion.md`, `README.md`, Dockerfile, compose.yaml, `pom.xml` ni fuentes de producción.
-- No se usó `sudo`, no se modificó el daemon Docker ni recursos ajenos. No se ejecutó `docker prune`. Contenedores/volúmenes/imagen QA con nombres únicos y eliminados tras la evidencia.
-- Sin credenciales reales, sin STT/TTS externo, sin navegador (no requerido por este criterio), sin afirmación de despliegue público.
+- Re-auditoría de Fase 3 sobre la entrega corregida de Antigravity (commit `10f5054`). No se modificó producción, tests, esquemas ni configuración global del anfitrión.
+- No se infiere "CI verde" por la mera existencia de `.github/workflows/verify.yml`; se ejecutó el smoke test de contenedor real y se verificó el healthcheck de Compose mediante `State.Health.Status`.
+- Escritura restringida a `docs/orchestration/issue-8-reconciliation-qa.md`, `issue-8-reconciliation-evidence/qa/` y `target/` (propio).
+- No se usó `sudo`, no se modificó el daemon Docker ni recursos ajenos. No se ejecutó `docker prune`. Sólo se eliminaron contenedor/volumen/red propios de QA.
+- Sin credenciales reales, sin STT/TTS externo, sin navegador, sin afirmación de despliegue público.
+- **Preservación histórica (design v2.1 §2.7)**: el informe de QA previo en el commit `b921027` NO fue modificado; queda como evidencia histórica en el repositorio. Este informe es la re-auditoría del nuevo SHA `10f5054`.
 
 ---
 
@@ -31,29 +32,30 @@
 | JAVA_HOME | `/home/gonzalocar/.jdks/ms-25.0.4.1` |
 | Maven | Apache Maven 3.8.7 |
 | Docker Engine | 29.9.2 (API 1.56), containerd v2.4.2, runc 1.5.2, Compose v5.5.1 |
-| `docker version` / `docker info` | target/qa-evidence/docker-version.txt, docker-info.txt (exit 0) |
-| Puerto QA (1er contenedor) | `36352` (aleatorio, target/qa-evidence/qa-port.txt) |
-| Puerto QA (recreado) | aleatorio (target/qa-evidence/qa-port2.txt) |
-| Volumen QA | `norma-issue8-qa-data` (único, eliminado tras evidencia) |
-| Imagen QA | `norma-issue8-qa:qa-local` |
+| Puerto smoke CI (docker run) | aleatorio, `target/qa2-port.txt` |
+| Puerto Compose QA | `34094` (`target/qa2-compose-port.txt`) |
+| Volumen Compose QA | `norma-qa2-reaudit_norma-qa2-reaudit-data` (propio, eliminado tras evidencia) |
+| Imagen QA | `norma-issue8-qa2:re-audit` |
 
 ---
 
-## 3. Exportación limpia y compilación (sin archivos sin seguimiento)
+## 3. Exportación limpia y compilación (log fuera de `target/`)
 
 Procedimiento de exportación limpia de `git archive HEAD` (no incorpora archivos sin seguimiento):
 
 ```bash
-rm -rf target/qa-export && mkdir -p target/qa-export
-git archive HEAD | tar -x -C target/qa-export
+rm -rf target/qa-reexport && mkdir -p target/qa-reexport
+git archive HEAD | tar -x -C target/qa-reexport
 export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1
 export PATH=$JAVA_HOME/bin:$PATH
-cd target/qa-export
+cd target/qa-reexport
 mvn -B clean verify   # exit code 0
 ```
 
+El log de Maven se guardó en el **padre del export** (`target/qa-reexport-maven.log`), no dentro de `target/` (que `mvn clean` elimina), tal como exige el diseño v2.1.
+
 **Resultado Maven**: `BUILD SUCCESS`, código de salida `0`.  
-Log: `issue-8-reconciliation-evidence/qa/qa-maven-verify.log` (el archivo de log se volatilizó con `mvn clean` por escribirse dentro de `target/`; comando, exit code y conteos quedan registrados aquí).
+Log: `issue-8-reconciliation-evidence/qa/qa-reexport-maven.log`.
 
 | Métrica | Valor |
 |---|---|
@@ -61,89 +63,142 @@ Log: `issue-8-reconciliation-evidence/qa/qa-maven-verify.log` (el archivo de log
 | Fallos | 0 |
 | Errores | 0 |
 | Omitidas | 0 |
-| `DeploymentSmokeTest` | 2/2 (pingHealthcheckContract, deploymentStartsWithoutExternalCredentials) |
-| Tiempo total | ~2 min 15 s |
+| `DeploymentSmokeTest` | 2/2 (`pingHealthcheckContract`, `deploymentStartsWithoutExternalCredentials`) |
+| Tiempo total | ~4 min 28 s |
 
 **Hash JAR (reconstrucción independiente QA)**:  
-`0ed1f43b47deaba57cf2a86c4480a9b0dd7ec915f46ea61e2d260feb7e5d9236  target/taller-1.0.0.jar`  
-(`issue-8-reconciliation-evidence/qa/qa-jar-sha256.txt`)
-
-**Trazabilidad vs builder**: el JAR de reconstrucción QA tiene hash distinto al registrado por el builder (`2dbba71a...`). Esperado: las compilaciones no son byte-reproducibles entre rutas/timestamps distintos; el origen es idéntico porque ambos parten de `git archive HEAD` del mismo SHA `0348d12`. El contenido de fuentes es el mismo; el hash del artefacto empaquetado no es criterio de aprobación.
+`6880ac4246f546a81263bb4c570ccb755aec491c036e99b4b54b33a13059626c  target/taller-1.0.0.jar`  
+(`issue-8-reconciliation-evidence/qa/qa-reexport-jar-sha256.txt`)
 
 ---
 
 ## 4. Construcción Docker independiente desde la exportación
 
 ```bash
-docker build -t norma-issue8-qa:qa-local -f target/qa-export/Dockerfile target/qa-export
+docker build -t norma-issue8-qa2:re-audit -f target/qa-reexport/Dockerfile target/qa-reexport
 ```
-**Exit code**: 0. La etapa `build` ejecutó `mvn -B verify` dentro de `maven:3.9-eclipse-temurin-25` (254 pruebas verdes en la imagen) y la etapa runtime empaquetó `eclipse-temurin:25-jre-noble` + `libwebp7` + venv `edge-tts==7.3.1` + usuario `norma` UID 10001.
+
+**Exit code**: 0. La etapa `build` ejecutó `mvn -B verify` (254 pruebas verdes dentro de la imagen) y la etapa runtime empaquetó `eclipse-temurin:25-jre-noble` + `libwebp7` + venv `edge-tts==7.3.1` + usuario `norma`.
 
 | Elemento | Valor |
 |---|---|
-| Imagen QA | `norma-issue8-qa:qa-local` |
-| Image ID | `sha256:ee8d6226ca7faf72887bdd68c7312c6e68bb2bbf9428fcfd75c772db8db7cb5e` |
-| Tamaño | 604065006 bytes |
+| Imagen QA | `norma-issue8-qa2:re-audit` |
+| Image ID / manifest digest | `ffd20b74cc71892d561141219371c78a3116242faf3b0691140fc29bb037b31f` |
+| Tamaño | 604 MB |
+| Build log | `issue-8-reconciliation-evidence/qa/qa-reexport-docker-build.log` |
 | Usuario configurado | `norma` |
-| Entrypoint | `java --enable-native-access=ALL-UNNAMED -XX:+UseCompactObjectHeaders -Xmx384m -jar app.jar` |
-| Variables | `NORMA_DB=/data/norma.db`, `NORMA_UPLOADS=/data/uploads` |
-| Build log | `issue-8-reconciliation-evidence/qa/docker-build.log` |
-| Imagen builder (referencia, no reutilizada) | `norma-issue8-builder:latest`, `sha256:5074f799...` |
 
-La imagen QA es independiente (nombre, ID y digest distintos del builder); se construyó desde la exportación limpia del SHA auditado, no se reutilizó la imagen del builder.
+La imagen QA es independiente (nombre y digest distintos de cualquier imagen previa) y se construyó desde la exportación limpia del SHA `10f5054`. No se reutilizó una imagen ajena sin verificar.
 
 ---
 
-## 5. Matriz de verificación en contenedor real (criterios del diseño)
+## 5. Correcciones verificadas del diseño v2.1
 
-Puerto efímero `36352` (1er contenedor `norma-issue8-qa-container`), volumen `norma-issue8-qa-data`, sin `GROQ_API_KEY` (arranque sin credenciales externas). Evidencia en `issue-8-reconciliation-evidence/qa/`.
+### 5.1. `DeploymentSmokeTest.java` — aislamiento estricto
+Verificado el fuente actualizado: usa `@TempDir static Path tempUploads` y `@DynamicPropertySource` inyectando `norma.uploads` al directorio temporal de JUnit y `groq.api.key=""`. La prueba no depende de variables del host ni altera el almacenamiento local. Resultado: 2/2 pruebas verdes.
+
+### 5.2. Smoke test de CI (`verify.yml`) — parser JSON y ciclo conversacional
+El workflow fue corregido para:
+- Consumir `GET /api/products?sessionId=ci-session-valid-1` con parser `python3`, validando estrictamente 8 productos, todos los campos obligatorios (`pieceNumber`, `title`, `price`, `imageUrl`, `sold`) y precio base de pieza #2 = 18500.
+- Ciclo conversacional completo: propuesta (`AWAITING_CONFIRMATION`), cancelación con `No` (`IDLE`, precio conserva 18500), propuesta y confirmación con `Sí` (`IDLE`, precio mutado a 20000).
+- Persistencia de datos mutados tras `docker restart` (pieza #2 = 20000) y tras recreación de contenedor con el MISMO volumen (pieza #2 = 20000).
+- Puerto dinámico `-p 0:8080` con re-evaluación tras `docker restart`.
+- Limpieza con `trap cleanup EXIT` que vuelca logs ante fallo y elimina sólo contenedores/volúmenes de prueba (sin `docker prune`).
+
+Verificado ejecutando el flujo real contra el contenedor (evidencia `qa2-*`): todos los pasos PASS.
+
+### 5.3. Backup determinista (`docs/operacion.md`)
+Verificado el procedimiento corregido: `docker compose stop taller` → `docker compose cp taller:/data <dir-backup>` → `docker compose start taller`, con verificación de contenido (`norma.db` y `uploads/`) y alternativa mediante `docker inspect` del nombre calificado real del volumen (no se asume `norma-data` no calificado).
+
+### 5.4. Documentación de UID/GID
+Verificado que la documentación declara correctamente `UID 10001 / GID observado 999 (norma)`, señalando que el `Dockerfile` no fija GID rígido con `-g`. En ejecución real se observó `uid=10001(norma) gid=999(norma)`.
+
+---
+
+## 6. Matriz de verificación en contenedor real y Compose
+
+### 6.1. Smoke CI real (docker run, puerto dinámico, trap cleanup) — exit 0
 
 | Paso | Verificación | Resultado observado | Estado |
 |---|---|---|---|
-| P1 | Usuario no-root (`docker exec id`) | `uid=10001(norma) gid=999(norma) groups=999(norma)` (`qa-user-id.txt`) | PASS |
-| P2 | Healthcheck `GET /api/ping` | HTTP 200 OK, cuerpo `PONG` (`qa-ping-response.txt`) | PASS |
-| P3 | Catálogo inicial 8 piezas | Sesión A: 8 productos; Sesión B: 8 productos (`qa-catalog-session-a-initial.json`, `-b-initial.json`) | PASS |
-| P4 | Mutación de precio (FSM) | Sesión A: propuesta → `AWAITING_CONFIRMATION`, "sí" → `IDLE`, pieza #2 a $20.000 (`qa-proposal-price.json`, `qa-confirm-price.json`, `qa-catalog-session-a-after-price.json`) | PASS |
-| P5 | Aislamiento multi-sesión | Sesión B: pieza #2 conserva $18.500 (`qa-catalog-session-b-after-price.json`) | PASS |
-| P6 | Carga foto real + texto + "sí" | Multipart PNG + texto → `AWAITING_CONFIRMATION`, "sí" → `IDLE`, `imageUrl=/media/a70b6858-cf17-4581-bcc7-26167ef24f25.webp` (`qa-proposal-image.json`, `qa-confirm-image.json`, `qa-catalog-session-a-after-image.json`) | PASS |
-| P7 | Serving WebP | `GET /media/<uuid>.webp` → HTTP 200, `Content-Type: image/webp`, 946 bytes (`qa-media-webp-response.txt`) | PASS |
-| P8 | Path traversal bloqueado | `GET /media/../norma.db` → HTTP 500, sin exponer ruta interna (`qa-traversal-response.txt`) | PASS |
-| P9 | Persistencia tras `docker restart` | `/api/ping` PONG; Sesión A $20.000 + WebP intactos; Sesión B $18.500 intacto (`qa-ping-post-restart.txt`, `qa-catalog-post-restart-a.json`, `-b.json`, `qa-media-post-restart.txt`) | PASS |
-| P10 | Persistencia tras recreación con MISMO volumen | `docker stop`+`docker rm`+`docker run -v norma-issue8-qa-data:/data`; nuevo contenedor `norma-issue8-qa-recreated`; Sesión A $20.000+WebP, Sesión B $18.500, permisos `/data` `norma:norma` (`qa2-catalog-recreated-a.json`, `-b.json`, `qa2-data-perms.txt`, `qa2-user-id.txt`) | PASS |
-| — | Cancelación | Propuesta luego "no" → `IDLE`, "Cancelé el cambio", pieza #2 en B se mantiene $18.500 (`qa-cancel-proposal.json`, `qa-cancel-no.json`, `qa-catalog-session-b-after-cancel.json`) | PASS |
-| — | Archivo inexistente | `GET /media/non-existent-file.webp` → HTTP 404 genérico (`qa-nonexistent-response.txt`) | PASS |
+| C1 | Catálogo inicial (parser JSON) | 8 productos, campos obligatorios, pieza #2 = 18500 | PASS |
+| C2 | Propuesta de mutación de precio | Estado `AWAITING_CONFIRMATION` | PASS |
+| C3 | Cancelación ("No") | Estado `IDLE`, pieza #2 conserva 18500 | PASS |
+| C4 | Propuesta + confirmación ("Sí") | Estado `IDLE`, pieza #2 = 20000 | PASS |
+| C5 | Persistencia tras `docker restart` | Puerto re-evaluado, pieza #2 = 20000, ping PONG | PASS |
+| C6 | Persistencia tras recreación con MISMO volumen | Nuevo contenedor, pieza #2 = 20000 | PASS |
+| C7 | Limpieza `trap cleanup EXIT` | Contenedores y volumen removidos, sin `docker prune` | PASS |
 
-**Healthcheck**: el `healthcheck` de `compose.yaml` apunta a `GET /api/ping` (Python `urllib.request`, timeout 3s) esperando HTTP 200 `PONG`. Verificado funcionalmente mediante `curl` contra el endpoint real del contenedor (PONG, HTTP 200). El contenedor se ejecutó con `docker run` (puedo/volumen QA únicos); el contrato del healthcheck queda demostrado por la respuesta del endpoint.
+Evidencia: `qa2-catalog-init.json`, `qa2-proposal-price.json`, `qa2-cancel-no.json`, `qa2-catalog-cancel.json`, `qa2-proposal2-price.json`, `qa2-confirm-price.json`, `qa2-catalog-confirmed.json`, `qa2-catalog-restart.json`, `qa2-catalog-recreated.json`, `qa-smoke-ci.sh`.
 
-**Permisos y datos**: `/data` contiene `norma.db`, `norma.db-shm`, `norma.db-wal` y `uploads/`, todos propiedad `norma:norma` (`qa2-data-perms.txt`). Volumen eliminado tras la evidencia; no se ejecutó `docker prune`.
+### 6.2. Compose QA real (proyecto/volumen propios) — `State.Health.Status=healthy`
 
----
+Ejecutado con `docker compose -p norma-qa2-reaudit -f compose.yaml -f target/qa-compose-override.yml up -d` (imagen pre-verificada `norma-issue8-qa2:re-audit`, puerto `34094`, volumen `norma-qa2-reaudit_norma-qa2-reaudit-data`).
 
-## 6. Limpieza de recursos QA
+| Verificación | Resultado observado | Estado |
+|---|---|---|
+| `State.Health.Status` (docker inspect) | `healthy` (intento 8 de polling) | PASS |
+| Endpoint `GET /api/ping` | HTTP 200, cuerpo `PONG` | PASS |
+| Usuario no-root (`docker exec id`) | `uid=10001(norma) gid=999(norma)` | PASS |
+| Multipart foto real + texto + "Sí" | `AWAITING_CONFIRMATION` → `IDLE`, `imageUrl=/media/<uuid>.webp` | PASS |
+| Serving WebP | HTTP 200, `Content-Type: image/webp` | PASS |
+| Persistencia WebP tras `docker restart` | Mismo URL de imagen, HTTP 200 `image/webp` tras restart | PASS |
+| `/data` permisos | `norma.db`, `-wal`, `-shm`, `uploads/` propiedad `norma:norma` | PASS |
+| Limpieza `down -v` | Contenedor, red y volumen propios removidos | PASS |
 
-Tras la evidencia se eliminaron exclusivamente:
-- Contenedor `norma-issue8-qa-recreated` (`docker rm -f`)
-- Volumen `norma-issue8-qa-data` (`docker volume rm`)
-
-El contenedor `norma-issue8-qa-container` ya había sido `docker rm` previo a la recreación. No se usó `docker prune`. Imagen `norma-issue8-qa:qa-local` conservada como evidencia de trazabilidad (no es recurso de runtime compartido). Recursos ajenos del anfitrión (imágenes/contenedores de otros proyectos) intactos.
-
----
-
-## 7. Limitaciones observadas
-
-- El archivo de log completo de Maven (`qa-maven-verify.log`) no se conserva como artefacto porque `mvn clean` eliminó `target/` (donde se escribía vía `tee`) al inicio de la ejecución; quedan registrados comando, exit code `0`, `BUILD SUCCESS` y los conteos de Surefire (254/0/0/0).
-- La reconstrucción QA del JAR tiene hash distinto al del builder (`0ed1f43b...` vs `2dbba71a...`): no se afirma reproducibilidad byte-a-byte del empaquetado, únicamente identidad de fuentes (`git archive HEAD` del mismo SHA) y veredicto de suite verde.
-- No se ejecutó `docker compose` para el ciclo de vida principal (se usó `docker run` con nombres QA únicos); el healthcheck se validó contra el endpoint real `/api/ping`, que es exactamente lo que comprueba el healthcheck de Compose. No se afirma despliegue en servidor público ni dominio de producción.
-- No se requiere navegador para este criterio (issue #8 se centra en backend/contenedor); no se abrió browser.
+Evidencia: `qa2-ping-response.txt`, `qa2-health-status.txt` (direct-run: none; compose: healthy), `qa2-compose-user-id.txt`, `qa2-data-perms.txt`, `qa2-proposal-image.json`, `qa2-confirm-image.json`, `qa2-catalog-a-after.json`, `qa2-media-webp.txt`, `qa2-catalog-a-restart.json`, `qa2-compose-container-id.txt`, `qa2-compose-port.txt`, `qa2-compose-override.yml`.
 
 ---
 
-## 8. Veredicto
+## 7. Re-auditoría de traversal (--path-as-is y encoded)
 
-Todos los criterios de la matriz del diseño v2 (P1–P10), el arranque sin `GROQ_API_KEY`, la confirmación y cancelación de la FSM, el aislamiento de sesión B, la carga y revelado de foto WebP real, el serving de medios, el bloqueo de traversal, la persistencia tras reinicio y recreación sobre el mismo volumen, y el usuario no-root UID 10001, fueron comprobados contra el contenedor real construido desde la exportación limpia del SHA `0348d12`. Suite de pruebas: 254/254, exit code 0.
+Se re-auditará con precisión la seguridad contra path traversal. **No se llama 404 a 500**: se clasifica exactamente el status observado, distinguiendo "bloqueado" de "status inválido".
+
+| Prueba | Request | Status observado | Clasificación | Estado |
+|---|---|---|---|---|
+| Traversal `--path-as-is` | `GET /media/../norma.db` | HTTP 404 | Bloqueado: Tomcat normaliza `../` y el recurso no existe; no se filtra `norma.db` | PASS (bloqueado, 404 no es 500) |
+| Traversal encoded | `GET /media/%2e%2e%2fnorma.db` | HTTP 400 | Bloqueado: conector Tomcat rechaza el recorrido de ruta codificado | PASS (bloqueado, 400 no es 500) |
+| Archivo inexistente | `GET /media/non-existent.webp` | HTTP 404 | Respuesta genérica 404, sin fuga interna | PASS |
+
+Conclusión de seguridad: el traversal está **bloqueado** en ambas variantes (no se accede a `norma.db` ni se revela ruta interna). Los códigos son 404 y 400 respectivamente, nunca 500; se informan con su valor real. No hay defecto de alcance que reportar.
+
+Evidencia: `qa2-traversal-pasi.txt` (404), `qa2-traversal-enc.txt` (400), `qa2-nonexistent.txt` (404).
+
+---
+
+## 8. Ausencia de claves y límites
+
+- El sistema arranca y opera sin `GROQ_API_KEY` (cadena vacía en `DeploymentSmokeTest` y en el contenedor).
+- No hay credenciales quemadas en código, logs ni artefactos de QA.
+- No se declara despliegue en servidor público externo ni dominio de producción.
+
+---
+
+## 9. Limpieza de recursos QA
+
+Tras la evidencia se eliminaron exclusivamente recursos propios:
+- Contenedor Compose `norma-qa2-reaudit-taller-1` (`docker compose ... down -v`)
+- Red `norma-qa2-reaudit_default`
+- Volumen `norma-qa2-reaudit_norma-qa2-reaudit-data`
+- Los contenedores del smoke CI directo fueron removidos por `trap cleanup EXIT`
+
+No se ejecutó `docker prune`. Recursos ajenos del anfitrión intactos. La imagen `norma-issue8-qa2:re-audit` se conserva como evidencia de trazabilidad de construcción (no es recurso de runtime compartido).
+
+---
+
+## 10. Veredicto
+
+Todos los criterios del diseño v2.1 fueron comprobados contra el SHA `10f5054`:
+- Exportación limpia y compilación JDK 25: `BUILD SUCCESS`, exit 0, **254/254 pruebas**, hash JAR registrado.
+- Imagen Docker construida desde la exportación limpia (254 pruebas verdes dentro de la imagen), ID/digest registrados.
+- `DeploymentSmokeTest` aislado (`@TempDir`, `@DynamicPropertySource`, `groq.api.key=""`).
+- Smoke test de CI real: parser JSON de 8 productos/campos, ciclo propuesta/cancel/confirm, persistencia de mutación tras restart y recreación mismo volumen, puerto dinámico, `trap cleanup` propio.
+- Compose QA real: `State.Health.Status=healthy`, ping PONG, nonroot 10001/999, multipart foto + texto + sí, WebP `image/webp`, persistencia de medios tras restart, `/data` `norma:norma`, limpieza `down -v`.
+- Traversal re-auditado con precisión: bloqueado (404 `--path-as-is`, 400 encoded), sin llamar 404 a 500, sin fuga de `norma.db`.
+- Sin claves externas; sin afirmación de despliegue público.
 
 **QA_APPROVED**. El informe y la evidencia quedan en:
 - `docs/orchestration/issue-8-reconciliation-qa.md`
 - `issue-8-reconciliation-evidence/qa/`
 
-Este dictamen habilita la Fase 4 de Codex (aprobación arquitectónica final). No implica merge, push a main ni cierre de issue por QA.
+Este dictamen habilita la Fase 4 de Codex (aprobación arquitectónica final). No implica merge, push a main ni cierre de issue por QA. El informe previo en el commit `b921027` permanece inalterado como evidencia histórica.

@@ -1,0 +1,10 @@
+HTTP/1.1 404 
+Vary: Origin
+Vary: Access-Control-Request-Method
+Vary: Access-Control-Request-Headers
+Content-Disposition: inline;filename=f.txt
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sat, 14 Nov 2026 02:25:41 GMT
+
+{"message":"No encontré ese archivo."}

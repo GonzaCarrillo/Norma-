@@ -1,0 +1,9 @@
+services:
+  taller:
+    image: norma-issue8-qa2:re-audit
+    ports:
+      - "34094:8080"
+    volumes:
+      - norma-qa2-reaudit-data:/data
+volumes:
+  norma-qa2-reaudit-data:
