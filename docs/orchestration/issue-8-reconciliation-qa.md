@@ -197,8 +197,77 @@ Todos los criterios del diseño v2.1 fueron comprobados contra el SHA `10f5054`:
 - Traversal re-auditado con precisión: bloqueado (404 `--path-as-is`, 400 encoded), sin llamar 404 a 500, sin fuga de `norma.db`.
 - Sin claves externas; sin afirmación de despliegue público.
 
-**QA_APPROVED**. El informe y la evidencia quedan en:
-- `docs/orchestration/issue-8-reconciliation-qa.md`
-- `issue-8-reconciliation-evidence/qa/`
+---
 
-Este dictamen habilita la Fase 4 de Codex (aprobación arquitectónica final). No implica merge, push a main ni cierre de issue por QA. El informe previo en el commit `b921027` permanece inalterado como evidencia histórica.
+## 11. Delta v2.2 vs QA aprobada `10f5054`/`62f4115` (commit `7b4efea`)
+
+**SHA auditado**: `7b4efea1f1861275a1d83f5654ac9ab0c71becd3`  
+**Base QA previa**: `10f5054` (informe `62f4115`, QA_APPROVED, preservado íntegro)  
+**Adenda de diseño**: `docs/orchestration/issue-8-reconciliation-design-v2.1.md` §4 (v2.2) y `docs/orchestration/issue-8-reconciliation-build.md` §9.
+
+### 11.1. Diff de fuentes y configuración respecto a `10f5054`
+
+`git diff 10f5054 7b4efea` (excluyendo evidencia y `target`) produjo exactamente 3 archivos, todos de documentación/flujo CI:
+- `.github/workflows/verify.yml`
+- `docs/orchestration/issue-8-reconciliation-build.md`
+- `docs/orchestration/issue-8-reconciliation-design-v2.1.md`
+
+**No hubo cambios** en `src/`, `pom.xml`, `Dockerfile`, `compose.yaml`, `.gitignore` ni pruebas Java. El runtime, las dependencias y los 254 tests ya auditados en `10f5054` permanecen al 100% idénticos.
+
+### 11.2. Cambio único en `verify.yml` (v2.2)
+
+Se incrementó `--max-time 5 → 25` **exclusivamente** en las 4 peticiones `POST /api/bot/message` del smoke test de CI (propuesta inicial, cancelación con `No`, propuesta reiterada y confirmación con `Sí`), para absorber el timeout interno de 12 s de `MediaService.speak` (edge-tts) y evitar falsos positivos por timeout cliente en runners con contención.
+
+Se mantuvieron intactos los timeouts acotados de las consultas rápidas:
+- `GET /api/ping`: `--max-time 3`
+- `GET /api/products`: `--max-time 5`
+
+No se modificaron asserts, puertos, volúmenes ni el cuerpo de las peticiones.
+
+### 11.3. Reejecución del smoke CI corregido v2.2
+
+No se reejecutó la suite de 254 pruebas (sin causa: fuentes Java idénticas a `10f5054`). Se reejecutó **únicamente** el smoke test de contenedor corregido contra la imagen QA independiente ya construida desde `10f5054`:
+
+| Elemento | Valor |
+|---|---|
+| Imagen QA | `norma-issue8-qa2:re-audit` |
+| Image ID / manifest digest | `ffd20b74cc71892d561141219371c78a3116242faf3b0691140fc29bb037b31f` |
+| Origen | construida desde `git archive HEAD` de `10f5054` (fuentes idénticas a `7b4efea` en runtime) |
+| Puerto | dinámico (`-p 0:8080`, re-evaluado tras restart) |
+| Volumen | propio `norma-qa2-vol-re-audit-v22-<id>` (eliminado tras evidencia) |
+| Script | `target/qa-smoke-ci-v22.sh` (sintaxis Bash verificada con `bash -n`) |
+| Log/exitcode | `issue-8-reconciliation-evidence/qa/v2.2/qa-v22-summary.txt` (`SCRIPT_EXIT=0`) |
+
+Resultado: `SCRIPT_EXIT=0`. Todos los criterios del smoke CI v2.1 se conservaron:
+- Catálogo inicial: 8 productos, campos obligatorios, pieza #2 = 18500.
+- Propuesta → `AWAITING_CONFIRMATION`; cancelación `No` → `IDLE`, pieza #2 conserva 18500.
+- Propuesta + confirmación `Sí` → `IDLE`, pieza #2 = 20000.
+- Persistencia mutada tras `docker restart` (pieza #2 = 20000, ping PONG).
+- Persistencia tras recreación con **mismo volumen** (pieza #2 = 20000).
+- Usuario no-root `uid=10001(norma) gid=999(norma)`; `/data` propiedad `norma:norma`.
+- Traversal bloqueado (preciso): `--path-as-is` → HTTP 404, encoded `%2e%2e%2f` → HTTP 400 (no se llama 404 a 500, sin fuga de `norma.db`).
+- WebP servido con `Content-Type: image/webp`.
+- Limpieza propia de contenedor y volumen (`trap cleanup EXIT`), sin `docker prune`.
+
+### 11.4. Trazabilidad de imagen
+
+La imagen `norma-issue8-qa2:re-audit` (`ffd20b74...`) se construyó en la auditoría previa sobre `10f5054` desde `git archive HEAD`. Como `7b4efea` no altera `src/`, `pom.xml`, `Dockerfile` ni `compose.yaml`, la imagen es ejecutablemente equivalente y trazable a la entrega ahora auditada. No se reconstruyó innecesariamente.
+
+### 11.5. Límites declarados
+
+- No se confunde la ejecución local de CI con GitHub Actions ya ejecutado.
+- No se declara despliegue en servidor público ni dominio de producción.
+- No se modificó producción, tests, Dockerfile ni configuración global del anfitrión.
+- No se usaron rutas `..` para evidencia fuera del checkout; todas las rutas de evidencia son absolutas bajo el worktree.
+
+---
+
+## 12. Veredicto final (delta `7b4efea`)
+
+El delta de `7b4efea` frente a la QA aprobada `10f5054`/`62f4115` se limita al ajuste de timeout `--max-time 25` en 4 peticiones POST conversacionales de CI (v2.2), con fuentes/runtime/tests/idénticas y smoke CI corregido ejecutado con éxito (exit 0) sobre imagen QA independiente trazable.
+
+**QA_APPROVED** sobre `7b4efea`, con correspondencia íntegra a la suite Docker y los criterios de la QA previa. El informe y la evidencia v2.2 quedan en:
+- `docs/orchestration/issue-8-reconciliation-qa.md`
+- `issue-8-reconciliation-evidence/qa/v2.2/`
+
+Este dictamen habilita la Fase 4 de Codex (aprobación arquitectónica final). No implica merge, push a main ni cierre de issue por QA. Los informes previos (`62f4115` sobre `10f5054` y `b921027` sobre `0348d12`) permanecen inalterados como evidencia histórica.
