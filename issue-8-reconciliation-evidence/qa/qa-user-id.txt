@@ -1,0 +1,1 @@
+uid=10001(norma) gid=999(norma) groups=999(norma)
