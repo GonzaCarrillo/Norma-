@@ -1,0 +1,20 @@
+Entorno de Construcción y Verificación Export Limpia JDK25:
+- OS: Linux x86_64 (Kernel 6.14.0-37-generic)
+- JDK: Microsoft OpenJDK 25.0.4.1 (build 25.0.4.1+1-LTS, JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1)
+- Maven: Apache Maven 3.8.7
+- Git HEAD: a320a65 (branch GonzaCarrillo/reconcile-4-media-final)
+- Timestamp: 2026-11-13T20:56:12-03:00
+
+Comando ejecutado:
+export JAVA_HOME=/home/gonzalocar/.jdks/ms-25.0.4.1 && export PATH=$JAVA_HOME/bin:$PATH && mvn -B clean verify
+Exit Code: 0 (BUILD SUCCESS)
+
+Resumen de Pruebas:
+- Total suite del monolito: 243 tests, 0 failures, 0 errors, 0 skipped
+- PhotoProcessorTest: 19 tests, 0 failures, 0 errors, 0 skipped (tiempo 12.06s)
+- MediaHttpTest: 23 tests, 0 failures, 0 errors, 0 skipped (tiempo 41.87s)
+- DemoMediaTest: 3 tests, 0 failures, 0 errors, 0 skipped (tiempo 1.768s)
+
+Artefacto empaquetado:
+- target/taller-1.0.0.jar
+- SHA-256: e05509a6d0f41da82e134304815149bb6d7b5c59f863980de153bddb77a97d8e
