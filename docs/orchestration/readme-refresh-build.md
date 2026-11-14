@@ -67,6 +67,26 @@ Conforme al criterio de aceptación («verificar diff check / links y comandos c
 
 ---
 
-## 5. Dictamen de Entrega
+## 5. Adenda de Correcciones (Post-auditoría QA — Dictamen QA_REJECTED)
 
-La tarea de actualización documental queda concluida con éxito en Fase 2 y lista para la auditoría de Fase 3 por OpenCode / Nemotron (`qa-auditor`) y posterior revisión de conformidad arquitectónica de Fase 4 por Codex.
+Tras la auditoría documental de Fase 3 realizada por OpenCode / Nemotron en `docs/orchestration/readme-refresh-qa.md` sobre el commit `ef3712e`, se aplicaron las siguientes rectificaciones técnicas estrictas en [README.md](../../README.md):
+
+1. **Defecto D1 (Endpoint SSE incorrecto)**:
+   - Se corrigió la ruta del canal de eventos de `GET /api/events` a `GET /api/catalog/stream`, reflejando exactamente el contrato de `@GetMapping(value="/api/catalog/stream")` en `Api.java:53` y `new EventSource('/api/catalog/stream' + query)` en `app.js:398`.
+2. **Defecto D2 (CREATE declara imagen opcional)**:
+   - Se rectificó la descripción de la operación `CREATE` para aclarar que la fotografía es un requisito obligatorio del borrador (`IntentParser.java:480` y `BotEngine.java:772`). La foto puede enviarse al inicio o tras especificar título y precio; el asistente mantiene el estado en espera de detalles hasta reunir los tres campos antes de solicitar confirmación.
+3. **Defecto D3 (Soporte PNG y canal alfa)**:
+   - Se ajustó la especificación de formatos PNG para reflejar que el pipeline admite imágenes PNG de hasta 8 bits por componente (RGB, escala de grises o indexadas) y que el canal alfa es debidamente compuesto sobre fondo blanco sólido `#FFFFFF` (`PhotoProcessor.java:418-422, 494-517`).
+4. **Defecto D4 (Política de perfiles de color ICC)**:
+   - Se precisó que la supresión y rechazo de bloques de perfil de color (`ICCP`) rige para el candidato WebP generado en la salida (`PhotoProcessor.java:597-599`) para asegurar su ligereza (< 80 KB), mientras que en la entrada se aceptan formatos que cumplan con el modelo de color soportado (rechazando CMYK y canales > 8 bits).
+5. **Observación menor (Anillo de foco)**:
+   - Se sincronizó el valor del anillo de foco accesible con la regla `:focus-visible { outline: 4px solid #004b75; outline-offset: 4px; }` de `style.css:58-59`.
+6. **Moderación de claims y banderas de ejecución JVM**:
+   - Se redujeron términos absolutos («instantánea», «garantizando», «exhaustivamente») sustituyéndolos por formulaciones empíricas y delimitadas.
+   - Se reformuló la nota sobre `--enable-native-access=ALL-UNNAMED` para indicar que habilita explícitamente el acceso JNI nativo para `sqlite-jdbc` en Java 25 eliminando las advertencias del runtime, sin presentarlo como una imposición excluyente del arranque.
+
+---
+
+## 6. Dictamen de Re-Entrega
+
+Los cuatro defectos técnicos bloqueantes (D1–D4) y las observaciones estilísticas han sido subsanados integralmente en `README.md`. La entrega queda lista para la re-auditoría documental de Fase 3 por OpenCode / Nemotron (`qa-auditor`).

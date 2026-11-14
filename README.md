@@ -10,18 +10,18 @@ La aplicación resuelve de punta a punta la exhibición accesible y la administr
 
 1. **Vidriera pública accesible en tiempo real**:
    - **Catálogo base**: Presenta una colección inicial de 8 piezas artesanales catalogadas, cada una con su número de pieza estable, título, precio en pesos argentinos enteros y fotografía en alta fidelidad.
-   - **Sincronización en vivo (SSE)**: La vidriera se suscribe automáticamente a un canal de Server-Sent Events (`GET /api/events`); ante cualquier modificación confirmada por el asistente, las tarjetas de piezas se agregan, actualizan o remueven de manera instantánea y reactiva sin recargar la página.
+   - **Sincronización en vivo (SSE)**: La vidriera se suscribe automáticamente a un canal de Server-Sent Events (`GET /api/catalog/stream`); ante cualquier modificación confirmada por el asistente, las tarjetas de piezas se agregan, actualizan o remueven de manera reactiva ante cada confirmación sin recargar la página.
    - **Diseño pensado para accesibilidad**:
      - Tipografía base legible de **22 px** (`font-size: 22px`) en todo el cuerpo del documento.
      - Botón **«Letra más grande»** que escala la tipografía a **28.6 px** (+30%) para personas con visión reducida.
-     - Navegación secuencial por teclado con anillo de foco visible (`outline: 3px solid #7d4420`) y enlace de salto directo al contenido principal (`#piezas`).
+     - Navegación secuencial por teclado con anillo de foco visible (`outline: 4px solid #004b75`) y enlace de salto directo al contenido principal (`#piezas`).
      - Diálogo modal accesible de foto ampliada (**zoom manual**) para inspeccionar detalles de la pieza sin distorsión.
      - Botón **«Escuchar catálogo»** con lectura por voz en voz alta; si el navegador no cuenta con soporte nativo para Web Speech API, muestra un mensaje informativo claro en pantalla sugiriendo continuar con la lectura visual.
 
 2. **Simulador conversacional (Asistente de WhatsApp)**:
    - Diálogo modal de evaluación que simula la interacción con Norma a través de mensajes de WhatsApp.
    - **Máquina de estados finitos (FSM)**: Gestiona 4 operaciones de catálogo estrictamente tipadas:
-     - `CREATE`: Alta de una nueva pieza asignando título, precio e imagen opcional.
+     - `CREATE`: Alta de una nueva pieza asignando título, precio y fotografía requerida (la imagen puede enviarse primero o tras indicar los datos; el borrador se completa y solicita confirmación únicamente al contar con los tres elementos).
      - `PRICE`: Actualización del precio de una pieza existente identificada por su número.
      - `IMAGE`: Sustitución de la fotografía de una pieza existente.
      - `SOLD`: Registro de pieza vendida (se oculta automáticamente de la vidriera pública).
@@ -29,19 +29,19 @@ La aplicación resuelve de punta a punta la exhibición accesible y la administr
      - Ante cualquier instrucción válida, el asistente no muta el catálogo a ciegas: genera una propuesta de borrador y pasa al estado `AWAITING_CONFIRMATION` solicitando la validación del usuario.
      - **«Sí, confirmo»**: Aplica la mutación de forma atómica a la base de datos y propaga la actualización a la vidriera vía SSE.
      - **«No, cancelar»**: Descarta el borrador y regresa al estado en reposo (`IDLE`) sin alterar los datos.
-     - **«Me equivoqué: deshacer» (`undo`)**: Permite revertir la última acción confirmada, restaurando de inmediato el estado previo del catálogo.
+     - **«Me equivoqué: deshacer» (`undo`)**: Permite revertir la última acción confirmada, restaurando el estado previo del catálogo.
      - **«Restaurar catálogo original» (`reset`)**: Restablece las 8 piezas originales de Norma, limpiando el borrador y el historial de reversiones.
 
 3. **Persistencia robusta y sesiones SQLite aisladas**:
    - Persistencia local en SQLite bajo modo Write-Ahead Logging (WAL) con transacciones serializadas (`maximum-pool-size=1`, `busy_timeout=5000` y `synchronous=NORMAL`).
    - **Plantilla base protegida**: La sesión `DEFAULT` contiene el catálogo fundacional y está protegida contra modificaciones o reinicios destructivos.
-   - **Aislamiento por evaluador**: Cada navegador genera un identificador de sesión único (UUID) almacenado en `localStorage` (`norma-session`). Las mutaciones y borradores de un evaluador solo impactan en su propia sesión, garantizando que múltiples personas puedan probar la aplicación simultáneamente sin interferir entre sí.
+   - **Aislamiento por evaluador**: Cada navegador genera un identificador de sesión único (UUID) almacenado en `localStorage` (`norma-session`). Las mutaciones y borradores de un evaluador solo impactan en su propia sesión, permitiendo que diferentes evaluadores interactúen con su propio catálogo sin interferir entre sí.
    - **Numeración monótona de piezas**: El contador histórico (`next_number`) sobrevive a operaciones de reversión (`undo`) y restauración (`reset`), asegurando que cada nueva pieza creada reciba siempre un número correlativo mayor al máximo histórico emitido.
 
 4. **Pipeline seguro de revelado y procesamiento de imágenes**:
-   - **Formatos de entrada admitidos**: JPEG/JPG, PNG8 (PNG indexado sin canal alfa ni paletas incompatibles) y WebP estático.
+   - **Formatos de entrada admitidos**: JPEG/JPG, PNG (hasta 8 bits por canal: RGB, escala de grises o indexado, con canal alfa compuesto sobre fondo blanco sólido) y WebP estático.
    - **Límites estrictos de seguridad**: Tamaño máximo de archivo de 15 MiB (`spring.servlet.multipart.max-file-size=15MB`), resolución máxima de 16.384 px por eje y límite total de 24 Megapíxeles ($W \times H \le 24.000.000$).
-   - **Rechazos defensivos (HTTP 400)**: Se rechazan formatos políglotas, WebP animados (bloques `ANIM`/`ANMF` o flag `animation` en `VP8X`), perfiles de color ICC incrustados y metadatos EXIF superiores a 256 KiB.
+   - **Validaciones defensivas y rechazos (HTTP 400)**: Se rechazan formatos políglotas, canales con más de 8 bits por componente, espacio de color CMYK, WebP animados (bloques `ANIM`/`ANMF` o flag `animation` en `VP8X`) y metadatos EXIF superiores a 256 KiB. En la salida, el proceso de codificación WebP suprime metadatos prescindibles y rechaza candidatos que retengan bloques de perfil de color (`ICCP`) incrustados para preservar su tamaño acotado.
    - **Revelado uniforme**: Recorte centrado proporcional 4:3, redimensionado exacto a 800x600 px sobre fondo blanco sólido `#FFFFFF` (para suprimir transparencias), corrección de contraste sRGB8 y codificación WebP lossy con calidades decrecientes (80 a 10) hasta lograr un tamaño estrictamente **menor a 80.000 bytes** (< 80 KB).
    - **Concurrencia protegida**: Semáforo estricto de 1 slot activo (`Semaphore(1)`) para evitar picos de memoria concurrentes en el procesamiento de rasters.
 
@@ -137,7 +137,7 @@ Podés levantar la aplicación de forma inmediata mediante contenedores Docker (
    ```bash
    java --enable-native-access=ALL-UNNAMED -jar target/taller-1.0.0.jar
    ```
-   *(El flag `--enable-native-access=ALL-UNNAMED` es requerido para el cargador nativo de SQLite JDBC en JDK 25).*
+   *(El flag `--enable-native-access=ALL-UNNAMED` habilita explícitamente el acceso nativo JNI para `sqlite-jdbc` en JDK 25, suprimiendo las advertencias del runtime).*
 
 4. **Acceder a la aplicación**:
    Abrí [http://localhost:8080](http://localhost:8080) en tu navegador o comprobá el endpoint con `curl http://localhost:8080/api/ping`.
@@ -202,7 +202,7 @@ Para evaluar todas las capacidades del sistema en pocos minutos:
 
 ## Pruebas automatizadas e Integración Continua (CI)
 
-- **Suite de pruebas completa**: El repositorio cuenta con una batería de **254 pruebas automatizadas** (JUnit 5, MockMvc y Spring Boot Test) que validan exhaustivamente los controladores HTTP, los contratos de error de `ApiErrors`, las transacciones y FSM de `BotEngine`, la persistencia y migración v2 de SQLite WAL, y el pipeline de revelado WebP de `PhotoProcessor`.
+- **Suite de pruebas completa**: El repositorio cuenta con una batería de **254 pruebas automatizadas** (JUnit 5, MockMvc y Spring Boot Test) que validan los controladores HTTP, los contratos de error de `ApiErrors`, las transacciones y FSM de `BotEngine`, la persistencia y migración v2 de SQLite WAL, y el pipeline de revelado WebP de `PhotoProcessor`.
   Para ejecutar la suite completa en local:
   ```bash
   mvn -B clean verify
