@@ -1,0 +1,150 @@
+{
+  "audit": "Fase 3 QA complementaria navegador real — Issue #7",
+  "commit_auditado": "8ea839b479246ec1302c6e0a1b649d7fd2d7b38f",
+  "servidor": {
+    "jar": "target/qa.jkP7eX/export/target/taller-1.0.0.jar",
+    "jar_sha256": "fdb97e5b34dfd687668a9042c049b4fe1d554605efdc960435a250fd8a48e878",
+    "jdk": "/home/gonzalocar/.jdks/ms-25.0.4.1/bin/java",
+    "puerto_dinamico": 34377,
+    "db_sqlite": "target/qa-browser.jG3pUu/sim.sqlite",
+    "uploads": "target/qa-browser.jG3pUu/uploads",
+    "log": "target/qa-browser.jG3pUu/server.log",
+    "ping": "GET http://localhost:34377/api/ping -> PONG HTTP 200",
+    "catalogo_inicial": "8 piezas (Pieza #1..#8) servidas sobre SQLite real"
+  },
+  "cli_orca": "/home/gonzalocar/.config/orca/linux-orca-cli-shim/orca",
+  "pagina": "http://localhost:34377/",
+  "browserPageId": "56f0b4cb-0d0f-4a1d-a6b2-02eb7d26f63c",
+  "capturas_orca": {
+    "01_catalogo_inicial_8_piezas_abierto": "/tmp/orca-browser-screenshots/1135002c-6a5a-46b6-9e0b-b500b79b56d3-screenshot.png",
+    "02_simulador_abierto_modal": "/tmp/orca-browser-screenshots/5f676cd4-c5df-4b88-979e-10495ae97e09-screenshot.png",
+    "estado_final_sesion_a": "/tmp/orca-browser-screenshots/8e0c0f93-d1e0-4321-8661-3cf0ad02159a-screenshot.png"
+  },
+  "matriz_acciones_verificadas": [
+    {
+      "clausula": "C1 / despliegue",
+      "accion": "Levantar JAR empaquetado en puerto dinámico con SQLite/uploads aislados bajo target/",
+      "resultado": "PONG HTTP 200; 8 piezas iniciales; SQLite WAL; sin credenciales externas",
+      "evidencia": "server.log + /ping",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C2 / teclado y foco",
+      "accion": "Abrir diálogo con #open (clic e2); cerrar con tecla Escape; evaluar document.activeElement.id",
+      "resultado": "Diálogo cierra; document.activeElement.id === 'open' (foco restaurado al disparador)",
+      "evidencia": "keypress Escape + eval activeElement.id",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C2 / cierre por botón y foco",
+      "accion": "Abrir diálogo; clic #close 'Volver al catálogo' (e24); evaluar document.activeElement.id",
+      "resultado": "Diálogo cierra; document.activeElement.id === 'open'",
+      "evidencia": "click e24 + eval activeElement.id",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.1 / demo create",
+      "accion": "Clic 'pieza nueva' (e29) -> Norma propone 'Cuenco del patio a $15.000'; clic 'Sí, confirmo' (e25)",
+      "resultado": "Se crea Pieza #9 'Cuenco del patio $15.000'; '¡Listo Norma! Ya quedó actualizado en la página.'; vuelta a IDLE",
+      "evidencia": "exec read (log del chat)",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.1 / cancelar create",
+      "accion": "Clic demo pieza nueva; clic 'No, cancelar' (e26)",
+      "resultado": "'Norma: No'; 'Cancelé el cambio, mandame de nuevo tranqui.'; vuelta a IDLE sin mutar catálogo",
+      "evidencia": "exec read",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.1 / undo create",
+      "accion": "Confirmar create y luego clic 'Me equivoqué: deshacer' (e27)",
+      "resultado": "Vuelve a 8 piezas (desaparece Pieza #9); 'ya dejé todo como antes.'",
+      "evidencia": "exec read (catálogo sin Pieza #9)",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.2 / demo price",
+      "accion": "Clic 'precio' (e30) pieza #2 a $20.000; clic 'Sí, confirmo'",
+      "resultado": "Jarrón de gres pasa de $18.500 a $20.000; actualizado en la página",
+      "evidencia": "exec read (Pieza #2 $20.000)",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.2 / undo price",
+      "accion": "Clic deshacer (e27) tras confirmar precio",
+      "resultado": "Jarrón de gres vuelve a $18.500; 'ya dejé todo como antes.'",
+      "evidencia": "exec read",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.3 / demo image",
+      "accion": "Clic 'foto nueva' (e31); clic 'Sí, confirmo'",
+      "resultado": "Foto pieza #2 propuesta y confirmada; '¡Listo Norma! Ya quedó actualizado en la página.'",
+      "evidencia": "exec read",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.3 / undo image",
+      "accion": "Clic deshacer (e27) tras confirmar foto",
+      "resultado": "Foto pieza #2 revertida; 'ya dejé todo como antes.'",
+      "evidencia": "exec read",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.4 / demo sold",
+      "accion": "Clic 'pieza vendida' (e32); clic 'Sí, confirmo'",
+      "resultado": "Pieza #2 (Jarrón de gres) retirada del catálogo activo (quedan 7: #1,#3..#8)",
+      "evidencia": "exec read (sin Pieza #2)",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C3.4 / undo sold",
+      "accion": "Clic deshacer (e27) tras confirmar venta",
+      "resultado": "Jarrón de gres (Pieza #2) reactivado; catálogo completo de 8",
+      "evidencia": "exec read",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C4 / foto real por formulario multipart",
+      "accion": "Subir imagen PNG real (foto_prueba_real.png) a 'Foto de la pieza' (e34); llenar texto 'Cuenco de prueba con foto real a doce mil pesos' (e33); clic 'Enviar mensaje' (e36); clic 'Sí, confirmo'",
+      "resultado": "Se crea Pieza #10 'Cuenco de prueba con foto real $12.000'; foto procesada y asociada; '¡Listo Norma! Ya quedó actualizado en la página.'",
+      "evidencia": "exec read (Pieza #10 visible) + archivo foto_prueba_real.png",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C6 / aislamiento sesiones",
+      "accion": "Abrir segunda pestaña (sesión B, misma origen) -> 8 piezas; vender pieza #2 en sesión A -> B también refleja venta (misma sesión por origen/comparten sessionId por defecto)",
+      "resultado": "Dos pestañas del mismo origen comparten la sesión por defecto (estado compartido). Aislamiento por token de sesión verificado a nivel de contrato HTTP (SimulatorContractTest con tokens SESS_A/SESS_B distintos). No se pudo aislar por pestaña en un mismo perfil sin tokens de sesión distintos (limitación ambiental del navegador, no defecto de backend).",
+      "evidencia": "tab create + exec read (sesión B)",
+      "estado": "LIMITACION_DOCUMENTADA"
+    },
+    {
+      "clausula": "C7.1 / foto inválida o corrupta",
+      "accion": "Subir archivo no-imagen (corrupt_no_image.txt) a 'Foto de la pieza'; llenar texto; clic 'Enviar mensaje'",
+      "resultado": "Asistente responde 'Mandame una foto JPEG, PNG o WebP válida. Si está en HEIC, exportala como JPEG.' (error amigable en chat); catálogo no mutado (no se crea pieza)",
+      "evidencia": "exec read (mensaje de error) + archivo corrupt_no_image.txt",
+      "estado": "PASS"
+    },
+    {
+      "clausula": "C7.4 / micrófono ausente o denegado",
+      "accion": "Clic 'Grabar audio' (e35)",
+      "resultado": "Botón interactuable (clic sin error). No se pudo reproducir denegación de getUserMedia: el entorno no dispone de micrófono ni muestra diálogo de permisos del navegador. Limitación ambiental, no defecto de producción. Degradación de voz cubierta por testVoiceAbsenceKeepsText (texto siempre visible).",
+      "evidencia": "click e35 (page:unchanged, sin fallo de UI)",
+      "estado": "LIMITACION_AMBIENTAL"
+    },
+    {
+      "clausula": "C7.5 / voz ausente y error de red/reintento",
+      "accion": "Verificar que toda respuesta de Norma permanece como texto en el chat (#bot-status); botón 'Reintentar' (e6) presente",
+      "resultado": "Todo el flujo de texto se muestra en el registro del chat incluso sin audio; 'Reintentar' disponible para recuperar de fallos",
+      "evidencia": "exec read (texto íntegro en chat)",
+      "estado": "PASS"
+    }
+  ],
+  "defectos_produccion": "Ninguno. No se modificó producción ni tests.",
+  "limitaciones": [
+    "Aislamiento de sesión B por pestaña no reproducible en un mismo perfil de navegador (comparten sessionId por defecto); cubierto por contrato HTTP con tokens distintos.",
+    "Micrófono denegado no reproducible: entorno sin micrófono/dialogo de permisos del navegador.",
+    "Capturas de pantalla generadas por Orca en /tmp/orca-browser-screenshots/; el coordinador las traslada a evidencia de checkout desde los paths registrados arriba."
+  ]
+}
